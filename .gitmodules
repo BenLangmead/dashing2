@@ -3,7 +3,7 @@
 	url = https://github.com/dpryan79/libBigWig
 [submodule "bonsai"]
 	path = bonsai
-	url = https://github.com/dnbaker/bonsai
+	url = https://github.com/BenLangmead/bonsai
 [submodule "fmt"]
 	path = fmt
 	url = https://github.com/fmtlib/fmt/

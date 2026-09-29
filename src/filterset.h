@@ -100,6 +100,7 @@ public:
         bfexp_ = o.bfexp_;
         k_ = o.k_;
         is128_ = o.is128_;
+        digest_ = o.digest_;
         return *this;
     }
     FilterSet(double bfexp=-1., int k=-1): bfexp_(bfexp), k_(k) {
