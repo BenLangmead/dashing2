@@ -74,9 +74,9 @@ SimpleMHRet minwise_det(const FT *weights, const IT *indices, size_t n, size_t m
 template<typename FT, typename IT>
 SimpleMHRet minhash(const FT *weights, const IT *indices, size_t n, size_t m, int usepmh) {
     std::fprintf(stderr, "Made mw det, w = %p, i = %p, size = %zu, %d pmh\n", (void *)weights, (void *)indices, sizeof(IT), usepmh);
-    if(usepmh == 0)
+    if(usepmh == 1)
         return minwise_det<ProbMinHash>(weights, indices, n, m);
-    if(usepmh == 1) return minwise_det<BagMinHash>(weights, indices, n, m);
+    if(usepmh == 0) return minwise_det<BagMinHash>(weights, indices, n, m);
     return minwise_det<FullSetSketch>(weights, indices, n, m);
 }
 
@@ -218,8 +218,8 @@ SimpleMHRet wmh_from_file(std::string idpath, std::string cpath, size_t sksz, in
 int wsketchusage() {
     std::fprintf(stderr, "Sketch raw IDs, with optional weights added\n"
                          "Usage: dashing2 wsketch [input.bin] <Optional: input.weights.bin> <Optional: indptr.bin for CSR data>\n"
-                         "If only one path is provided, it treated as indices, and sketched via SetSketch; IE, everything is sketched with equal weight.\n"
-                         "If two paths are provided, the second is treated as a weight vector, and the multiset is sketched via ProbMinHash or BagMinHash.\n"
+                         "If only one path is provided, it is treated as indices, each with weight 1. The sketch type is chosen as described under Sketching options.\n"
+                         "If two paths are provided, the second is treated as a weight vector.\n"
                          "If three paths are provided, the second is treated as a weight vector, and the last is used as indptr; this yields a stacked set of sketches corresponding to the input matrix.\n"
                          "-S: set sketch size\n"
                          "Identifier size: 64-bit by default.\n"
