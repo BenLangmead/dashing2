@@ -127,7 +127,17 @@ SketchingResult &sketch_core(SketchingResult &result, Dashing2DistOptions &opts,
         }
         std::fclose(ofp);
     } else {
-        if(outfile.size() && outfile != "/dev/stdout" && outfile != "-") {
+        if(outfile.size() && outfile != "/dev/stdout" && outfile != "-" && (opts.dtype_ == DataType::BED || opts.dtype_ == DataType::BIGWIG)) {
+            // Interval sketches are held in memory rather than mapped to outfile, so write the whole stacked file
+            const uint64_t t = result.cardinalities_.size(), sketchsize = opts.sketchsize_;
+            std::FILE *fp = bfopen(outfile.data(), "wb");
+            if(!fp) THROW_EXCEPTION(std::runtime_error("Failed to open file "s + outfile + " for writing"));
+            checked_fwrite(fp, &t, sizeof(t));
+            checked_fwrite(fp, &sketchsize, sizeof(sketchsize));
+            checked_fwrite(fp, result.cardinalities_.data(), result.cardinalities_.size() * sizeof(double));
+            checked_fwrite(fp, result.signatures_.data(), result.signatures_.size() * sizeof(RegT));
+            std::fclose(fp);
+        } else if(outfile.size() && outfile != "/dev/stdout" && outfile != "-") {
             // This should not overlap with the memory mapped for result.signatures_
             const uint64_t t = result.cardinalities_.size();
             std::FILE *fp = bfopen(outfile.data(), "r+");
