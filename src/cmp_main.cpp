@@ -287,6 +287,10 @@ int cmp_main(int argc, char **argv) {
             if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nq = paths.size() - nref;
+    // Top-k, threshold and greedy modes compare every input with every other, and the
+    // output kind is set by whichever of these flags and -Q came last.
+    if(nq && (topk_threshold > 0 || similarity_threshold > 0.))
+        THROW_EXCEPTION(std::invalid_argument("-Q/--qfile (a reference-by-query matrix) cannot be combined with --topk, --similarity-threshold or --greedy. Provide all inputs as positional arguments or with -F instead."));
     Dashing2Options opts(k, w, rht, sketch_space, dt, nt, use128, spacing, canon, res);
     opts
         .cache_sketches(cache)
