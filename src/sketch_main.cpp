@@ -132,6 +132,7 @@ int sketch_main(int argc, char **argv) {
         sketch_usage();
         return 1;
     }
+    if(unsupported_by_seq(distopts, cmpout.size())) return 1;
     SketchingResult result;
     if(verbosity >= EXTREME) {
         std::fprintf(stderr, "About to sketch\n");

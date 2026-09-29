@@ -131,6 +131,7 @@ void cmp_core(const Dashing2DistOptions &ddo, SketchingResult &res);
 LSHDistType compare(const Dashing2DistOptions &opts, const SketchingResult &result, size_t i, size_t j);
 void emit_rectangular(const Dashing2DistOptions &opts, const SketchingResult &result);
 size_t default_batchsize(size_t &batch_size, const Dashing2DistOptions &opts);
+bool unsupported_by_seq(const Dashing2Options &opts, bool comparing);
 
 
 }
