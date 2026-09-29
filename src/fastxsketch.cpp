@@ -244,7 +244,8 @@ FastxSketchingResult &fastx2sketch(FastxSketchingResult &ret, Dashing2Options &o
     }
     if(kmeroutpath.size()) {
         std::FILE *fp = bfopen(kmeroutpath.data(), "w");
-        uint32_t dtype = (uint32_t)opts.input_mode() | (int(opts.canonicalize()) << 8);
+        // Bit 8 marks canonical k-mers and bit 9 marks 128-bit (--long-kmers) k-mers.
+        uint32_t dtype = (uint32_t)opts.input_mode() | (int(opts.canonicalize()) << 8) | (int(opts.use128()) << 9);
         uint32_t sketchsize = opts.sketchsize_;
         uint32_t k = opts.k_;
         uint32_t w = opts.w_ < 0 ? opts.k_: opts.w_;
@@ -565,19 +566,19 @@ do {\
                 assert(opss.size() > unsigned(tid));
                 assert(opss.at(tid).total_updates() == 0);
                 auto p = &opss[tid];
-                perf_for_substrs([p](auto hv) {p->update(hv);});
+                perf_for_substrs([p](auto hv) {p->update(fold64(hv));});
                 assert(ret.cardinalities_.size() > i);
                 cret = p->getcard();
             } else {
                 if(opts.sketch_compressed_set) {
                     std::visit([&](auto &x) {
                         perf_for_substrs([&x](auto hv) {
-                            x.update(hv);
+                            x.update(fold64(hv));
                         });
                         cret = x.cardinality();
                     }, cfss.at(tid));
                 } else {
-                    perf_for_substrs([p=&fss[tid]](auto hv) {p->update(hv);});
+                    perf_for_substrs([p=&fss[tid]](auto hv) {p->update(fold64(hv));});
                     cret = fss[tid].getcard();
                 }
             }
