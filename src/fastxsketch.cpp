@@ -418,7 +418,7 @@ FastxSketchingResult &fastx2sketch(FastxSketchingResult &ret, Dashing2Options &o
             for_each_substr([&](const std::string &subpath) {
                 auto lfunc = [&](auto x) __attribute__((__always_inline__)) {
                     x = maskfn(x);
-                    if((!opts.fs_ || !opts.fs_->in_set(x)) && opts.downsample_pass()) func(x);
+                    if((!opts.fs_ || !opts.fs_->in_set(x)) && opts.downsample_pass(x)) func(x);
                 };
                 auto lfunc2 = [&func](auto x) __attribute__((__always_inline__)) {func(maskfn(x));};
                 const auto seqp = kseqs.kseqs_ + tid;

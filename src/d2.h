@@ -115,7 +115,6 @@ public:
     std::string outprefix_;
     std::string spacing_;
     double kmer_downsample_frac_ = 1.;
-    uint64_t sampler_rng_;
     uint64_t sampler_threshold_;
     uint64_t seedseed_ = 0;
     double fd_level_ = sizeof(RegT); // Determines the number of bytes to which the minhash sketches are compressed
@@ -171,12 +170,24 @@ public:
     void downsample(const double f) {
         if(f < 0. || f > 1.) throw std::runtime_error("Can't downsample to anything > 1 or < 0");
         kmer_downsample_frac_ = f;
-        std::memcpy(&sampler_rng_, &f, 8);
         sampler_threshold_ = std::ceil(static_cast<long double>(uint64_t(-1)) * static_cast<long double>(f));
     }
-    INLINE bool downsample_pass() {
-        return kmer_downsample_frac_ == 1. ||
-               wy::wyhash64_stateless(&sampler_rng_) < sampler_threshold_;
+    // Keep a k-mer when a salted hash of it falls below the threshold, so the
+    // decision depends only on the k-mer: every occurrence of a k-mer, in any
+    // file and on any thread, is kept or dropped together. The salt keeps the
+    // sample independent of the hashes the sketches themselves use.
+    static INLINE uint64_t downsample_hash(uint64_t x) {
+        x ^= 0x9e3779b97f4a7c15ull;
+        x = (x ^ (x >> 33)) * 0xff51afd7ed558ccdull;
+        x = (x ^ (x >> 33)) * 0xc4ceb9fe1a85ec53ull;
+        return x ^ (x >> 33);
+    }
+    static INLINE uint64_t downsample_hash(u128_t x) {
+        return downsample_hash(uint64_t(x) ^ downsample_hash(uint64_t(x >> 64)));
+    }
+    template<typename T>
+    INLINE bool downsample_pass(T x) const {
+        return kmer_downsample_frac_ == 1. || downsample_hash(x) < sampler_threshold_;
     }
     // Getters and setters for all of the above
     Dashing2Options &parse_bigwig() {dtype_ = BIGWIG; return *this;}
