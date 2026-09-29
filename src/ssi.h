@@ -1,6 +1,8 @@
 #ifndef SKETCH_SETSKETCH_INDEX_H__
 #define SKETCH_SETSKETCH_INDEX_H__
 #include <cstdint>
+#include <cstring>
+#include <type_traits>
 #include <map>
 #include <vector>
 #include <atomic>
@@ -56,6 +58,19 @@ public:
     using key_type = KeyT;
     using id_type = IdT;
     size_t m() const {return m_;}
+    // Bottom-k sketches are indexed by their values. Exact modes (--set, --countdict) keep
+    // integer hashes in floating-point registers, so the key is the register's bits;
+    // converting the value would map almost every hash to 0.
+    template<typename T>
+    static KeyT bottomk_key(const T &x) {
+        if constexpr(std::is_floating_point_v<T>) {
+            if constexpr(sizeof(T) <= sizeof(KeyT)) {
+                KeyT ret = 0;
+                std::memcpy(&ret, &x, sizeof(T));
+                return ret;
+            } else return XXH3_64bits(&x, sizeof(T));
+        } else return x;
+    }
     size_t size() const {return total_ids_;}
     size_t size(size_t total_ids) {return total_ids_ = total_ids;}
     size_t ntables() const {return packed_maps_.size();}
@@ -216,8 +231,8 @@ public:
         auto &map = packed_maps_.front().front();
         const size_t my_id = std::atomic_fetch_add(reinterpret_cast<std::atomic<size_t> *>(&total_ids_), size_t(1));
         for(const auto v: item) {
-            auto it = map.find(v);
-            if(it == map.end()) map.emplace(v, std::vector<IdT>{static_cast<IdT>(my_id)});
+            auto it = map.find(bottomk_key(v));
+            if(it == map.end()) map.emplace(bottomk_key(v), std::vector<IdT>{static_cast<IdT>(my_id)});
             else {
                 for(const auto v: it->second) ++matches[v];
                 it->second.emplace_back(my_id);
@@ -246,9 +261,9 @@ public:
             ? std::optional<std::lock_guard<std::mutex>>(mutexes_.front().front())
             : std::optional<std::lock_guard<std::mutex>>());
         for(const auto v: item) {
-            auto it = map.find(v);
+            auto it = map.find(bottomk_key(v));
             if(it == map.end()) {
-                map.emplace(v, std::vector<IdT>{IdT(my_id)});
+                map.emplace(bottomk_key(v), std::vector<IdT>{IdT(my_id)});
             } else it->second.emplace_back(my_id);
         }
     }
@@ -369,7 +384,7 @@ public:
     template<typename Sketch>
     INLINE KeyT hash_index(const Sketch &item, size_t i, size_t j) const {
         if(is_bottomk_only_) {
-            return item[j];
+            return bottomk_key(item[j]);
         }
         const size_t nreg = regs_per_reg_[i];
         static constexpr size_t ITEMSIZE = sizeof(std::decay_t<decltype(item[0])>);
@@ -407,7 +422,7 @@ public:
         if(is_bottomk_only_) {
             auto &m = packed_maps_.front().front();
             for(size_t j = 0; j < item.size() && rset.size() < maxcand; ++j) {
-                if(auto it = m.find(item[j]); it != m.end()) {
+                if(auto it = m.find(bottomk_key(item[j])); it != m.end()) {
                     for(const auto id: it->second) {
                         auto rit2 = rset.find(id);
                         if(rit2 == rset.end()) {
