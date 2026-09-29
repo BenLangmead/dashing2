@@ -249,8 +249,8 @@ int contain_main(int argc, char **argv) {
         checked_fwrite(coverage_mat.data(), sizeof(float), coverage_mat.size(), ofp);
     } else {
         // TODO: Parallize results formatting
-        fmt::print(ofp, "#Dashing2 contain - a list of coverage %%s for the set of references, + mean coverage levels.\n"
-                        "#Each matrix entry consists of <coverage%%:mean depth of coverage>\n"
+        fmt::print(ofp, "#Dashing2 contain - a list of coverage percentages for the set of references, + mean coverage levels.\n"
+                        "#Each matrix entry consists of <coverage%:mean depth of coverage>\n"
                         "##References:");
         for(size_t i = 0; i < nitems; ++i)
             fmt::print(ofp, "\t{}", names[i]);
