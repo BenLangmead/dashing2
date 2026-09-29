@@ -265,12 +265,14 @@ int cmp_main(int argc, char **argv) {
         static constexpr size_t bufsize = 1<<18;
         std::unique_ptr<char []> buf(new char[bufsize]);
         ifs.rdbuf()->pubsetbuf(buf.get(), bufsize);
-        for(std::string l;std::getline(ifs, l);paths.push_back(l));
+        for(std::string l;std::getline(ifs, l);)
+            if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nref = paths.size();
     if(qfile.size()) {
         std::ifstream ifs(qfile);
-        for(std::string l;std::getline(ifs, l);paths.push_back(l));
+        for(std::string l;std::getline(ifs, l);)
+            if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nq = paths.size() - nref;
     Dashing2Options opts(k, w, rht, sketch_space, dt, nt, use128, spacing, canon, res);

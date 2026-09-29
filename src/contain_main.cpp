@@ -143,7 +143,7 @@ int contain_main(int argc, char **argv) {
         case 'F': {
             std::ifstream ifs(optarg);
             for(std::string line;std::getline(ifs, line);)
-                streamfiles.emplace_back(line);
+                if(trim_path_line(line)) streamfiles.emplace_back(line);
             break;
         }
     }
