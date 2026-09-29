@@ -186,14 +186,17 @@ int contain_main(int argc, char **argv) {
     bns::Encoder<bns::score::Lex, uint64_t> e64(sp, nullptr, canon);
     bns::RollingHasher<uint64_t> rh64(k, canon, rht, w);
     flat_hash_map<uint64_t, std::vector<uint64_t>> kmer2ids;
+    // One-permutation sketches of small inputs have empty buckets, which a fresh sketch
+    // reports with this id. They hold no k-mer, so they are left out of the coverage.
+    const uint64_t emptyid = OPSetSketch(sketchsize).ids().front();
+    std::vector<uint32_t> nsampled(nitems);
     for(size_t i = 0; i < nitems; ++i) {
         uint64_t *ptr = ((uint64_t *)dbptr + 3 + sketchsize * i);
         assert((const char *)ptr < &db.data()[db.size()]);
-#if _OPENMP >= 201307L
-        #pragma omp simd
-#endif
         for(size_t j = 0; j < sketchsize; ++j) {
+            if(ptr[j] == emptyid) continue;
             kmer2ids[ptr[j]].push_back(i);
+            ++nsampled[i];
         }
     }
     // We can quickly filter out k-mers by using min/max k-mers
@@ -218,7 +221,6 @@ int contain_main(int argc, char **argv) {
     const size_t table2size = tablesize * 2;
     std::vector<float, sketch::Allocator<float>> coverage_mat(table2size);
     float *const coverage_stats = coverage_mat.data() + tablesize;
-    const double ssiv = 1. / sketchsize;
     OMP_PFOR_DYN
     for(size_t i = 0; i < res.size(); ++i) {
         uint32_t *matches = static_cast<uint32_t *>(std::calloc(nitems * 2, sizeof(uint32_t)));
@@ -236,7 +238,7 @@ int contain_main(int argc, char **argv) {
 #endif
         for(size_t j = 0; j < nitems; ++j) {
             if(matches[j]) {
-                cmatptr[j] = ssiv * matches[j];
+                cmatptr[j] = double(matches[j]) / nsampled[j];
                 cstatsptr[j] = matchsums[j] / matches[j];
             }
         }
