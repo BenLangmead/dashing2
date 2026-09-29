@@ -84,7 +84,7 @@ int sketch_main(int argc, char **argv) {
         std::unique_ptr<char []> buf(new char[bufsize]);
         ifs.rdbuf()->pubsetbuf(buf.get(), bufsize);
         for(std::string l;std::getline(ifs, l);) {
-            paths.push_back(l);
+            if(trim_path_line(l)) paths.push_back(l);
         }
         if(paths.empty()) {
             THROW_EXCEPTION(std::runtime_error("No paths read from "s + ffile));
@@ -94,7 +94,7 @@ int sketch_main(int argc, char **argv) {
     if(qfile.size()) {
         std::ifstream ifs(qfile);
         for(std::string l;std::getline(ifs, l);)
-            paths.push_back(l);
+            if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nq = paths.size() - nref;
     Dashing2Options opts(k, w, rht, sketch_space, dt, nt, use128, spacing, canon, res);

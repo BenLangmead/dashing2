@@ -48,26 +48,26 @@ struct IntervalSketchResult {
     double card_;
 };
 
+// Calls func on each sep-separated token of s. Runs of separators count as
+// one, and leading or trailing separators are ignored.
 template<typename F>
 void for_each_substr(const F &func, const std::string &s, const int sep=' ') {
-    const char *p;
-    if((p = std::strchr(s.data(), sep)) == nullptr) {
-        func(s);
-        return;
+    for(size_t i = 0;;) {
+        while(i < s.size() && s[i] == sep) ++i;
+        if(i == s.size()) break;
+        const size_t j = std::min(s.find(char(sep), i), s.size());
+        func(s.substr(i, j - i));
+        i = j;
     }
-    const char *p2 = s.data();
-    std::string tmp(p2, p);
-    for(;;) {
-        func(tmp);
-        std::swap(p2, ++p);
-        if((p = std::strchr(p2, sep)) == nullptr) {
-            tmp = p2;
-            func(tmp);
-            break;
-        }
-        tmp = std::string(p2, p);
-        if(std::all_of(tmp.begin(), tmp.end(), [](auto x) {return std::isspace(x);})) break;
-    }
+}
+
+// Removes surrounding whitespace, including the carriage return of a CRLF
+// line, from a line of a path list (-F, -Q). Returns false for a blank line.
+static inline bool trim_path_line(std::string &l) {
+    const auto notspace = [](unsigned char c) {return !std::isspace(c);};
+    const auto e = std::find_if(l.rbegin(), l.rend(), notspace).base();
+    l = std::string(std::find_if(l.begin(), e, notspace), e);
+    return !l.empty();
 }
 
 static inline bool check_compressed(std::string &path, int &ft) {
