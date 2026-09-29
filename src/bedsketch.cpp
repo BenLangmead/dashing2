@@ -23,14 +23,11 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     }
     if(opts.cache_sketches_ && bns::isfile(cache_path)) {
         auto [ifp, ispopen] = xopen(cache_path);
-        std::fread(&ret.second, sizeof(ret.second), 1, ifp);
-        while(!std::feof(ifp)) {
-            RegT v;
-            std::fread(&v, sizeof(v), 1, ifp);
-            retvec.push_back(v);
-        }
-        ret.second = retvec.size() / std::accumulate(retvec.begin(), retvec.end(), 0.L);
+        // The cache holds the cardinality followed by exactly sketchsize_ registers.
+        const bool ok = std::fread(&ret.second, sizeof(ret.second), 1, ifp) == 1
+                     && std::fread(retvec.data(), sizeof(RegT), retvec.size(), ifp) == retvec.size();
         if(ispopen) ::pclose(ifp); else std::fclose(ifp);
+        if(!ok) throw std::runtime_error("Failed to read cached BED sketch from " + cache_path);
         return ret;
     }
     for(std::string s;std::getline(ifs, s);) {
