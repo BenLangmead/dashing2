@@ -169,15 +169,16 @@ int contain_main(int argc, char **argv) {
     const uint32_t w = ((const uint32_t *)dbptr)[3];
     const uint64_t seed = ((const uint64_t *)dbptr)[2];
     seed_mask(seed);
-    if((db.size() - headerlen) % sketchsize) THROW_EXCEPTION(std::runtime_error("Database corrupted (not a multiple of uint64_t size). Regenerate?"));
+    if((db.size() - headerlen) % (sketchsize * sizeof(uint64_t))) THROW_EXCEPTION(std::runtime_error("Database corrupted (not a multiple of uint64_t size). Regenerate?"));
     std::vector<std::string> names;
     {
         if(bns::isfile(databasefile + ".names.txt")) {
             std::ifstream ifs(databasefile + ".names.txt");
             for(std::string line;std::getline(ifs, line); names.emplace_back(line));
         } else {
-            const size_t v = ((db.size() - headerlen) / sketchsize);
-            while(names.size() < v) names.push_back(std::to_string(v));
+            // Without a names file, label references by their index in the database.
+            const size_t v = (db.size() - headerlen) / (sketchsize * sizeof(uint64_t));
+            while(names.size() < v) names.push_back(std::to_string(names.size()));
         }
     }
     const size_t nitems = names.size();
