@@ -59,7 +59,7 @@ void Dashing2Options::filterset(const std::string &path, bool is_kmer) {
         else cmd = "";
         std::FILE *ifp;
         if(cmd.empty()) {
-            if((ifp = bfopen(cmd.data(), "rb")) == 0)
+            if((ifp = bfopen(path.data(), "rb")) == 0)
                 THROW_EXCEPTION(std::runtime_error("Failed to open file "s + path + " for reading"));
         } else {
             if((ifp= ::popen((cmd + path).data(), "r")) == 0)
