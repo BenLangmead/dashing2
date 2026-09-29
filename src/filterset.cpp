@@ -25,6 +25,9 @@ namespace dashing2 {
                     data_[(rem >> SHIFT)] |= (T(1) << (rem & MASK));
                 }
             }
+        } else if(is128_) {
+            u128_t *const p = reinterpret_cast<u128_t *>(data_.data());
+            std::sort(p, p + data_.size() / 2);
         } else {
             std::sort(data_.begin(), data_.end());
             //std::fprintf(stderr, "Sorted filterset of size %zu\n", data_.size());
