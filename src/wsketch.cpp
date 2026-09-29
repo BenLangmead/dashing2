@@ -28,14 +28,14 @@ std::vector<SimpleMHRet> minhash_rowwise_csr(const FT *weights, const IT *indice
         ++total_processed;
         BMH h(construct<BMH>(m));
         const size_t b = indptr[i], e = indptr[i + 1];
+        // Sketch the given ids, so that rows sharing ids share samples.
         for(size_t j = b; j < e; ++j) {
-            h.update(j - b, weights ? weights[j]: FT(1));
+            h.update(uint64_t(indices[j]), weights ? weights[j]: FT(1));
         }
         if constexpr(!std::is_same_v<BMH, FullSetSketch>) h.finalize();
         std::get<3>(ret[i]) = total_weight(h);
-        std::vector<uint64_t> ids(m);
         auto &hids = h.ids();
-        std::transform(hids.begin(), hids.end(), ids.begin(), [ind=indices + b](auto x) {return ind[x];});
+        std::vector<uint64_t> ids(hids.begin(), hids.end());
         std::get<0>(ret[i]) = h.template to_sigs<RegT>();
         std::get<1>(ret[i]) = h.template to_sigs<uint64_t>();
         std::get<2>(ret[i]) = ids;
@@ -55,15 +55,11 @@ template<typename BMH, typename FT, typename IT>
 SimpleMHRet minwise_det(const FT *weights, const IT *indices, size_t n, size_t m) {
     BMH h(construct<BMH>(m));
     for(size_t i = 0; i < n; ++i) {
-        // We use the offset as a first ID, and then we convert these to the
-         // relevant IDs sampled at the end
-        h.update(i, weights ? weights[i]: FT(1));
+        h.update(uint64_t(indices[i]), weights ? weights[i]: FT(1));
     }
-    std::vector<uint64_t> ids(m);
-    std::vector<RegT> regs;
     if constexpr(!std::is_same_v<BMH, FullSetSketch>) h.finalize();
     auto &hids = h.ids();
-    std::transform(hids.begin(), hids.end(), ids.begin(), [ind=indices](auto x) {return ind[x];});
+    std::vector<uint64_t> ids(hids.begin(), hids.end());
     SimpleMHRet ret;
     ret.sigs() = h.template to_sigs<RegT>();
     ret.hashes() = h.template to_sigs<uint64_t>();
