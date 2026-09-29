@@ -46,6 +46,11 @@ SketchingResult &sketch_core(SketchingResult &result, Dashing2DistOptions &opts,
         result.signatures_.resize(res.registers().size());
         std::copy(res.registers().begin(), res.registers().end(), result.signatures_.begin());
     } else if(opts.dtype_ == DataType::BED || opts.dtype_ == DataType::BIGWIG) {
+        // Interval inputs are only sketched; there are no k-mer set or sequence files to compare exactly
+        if(opts.kmer_result_ >= FULL_MMER_SET) {
+            std::fprintf(stderr, "--bed and --bigwig inputs support sketches only, not --set, --countdict or --seq\n");
+            std::exit(EXIT_FAILURE);
+        }
         std::vector<std::pair<size_t, uint64_t>> filesizes = get_filesizes(paths);
         result.signatures_.resize(npaths * opts.sketchsize_);
         result.names_.resize(npaths);
