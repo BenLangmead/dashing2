@@ -150,6 +150,16 @@ public:
         if(nt < 1) nt = 1;
         nthreads(nt);
         ht(rht);
+        // k-mers longer than the exact-encoding limit are rolling-hashed, and
+        // the rolling hasher has no support for spaced seeds.
+        if(!sp_.unspaced() && size_t(k_) > (use128_ ? nremperres128(): nremperres64())) {
+            if(use128_)
+                std::fprintf(stderr, "Error: with -2/--long-kmers, --spacing requires k <= %zu for this alphabet (k: %d).", nremperres128(), k_);
+            else
+                std::fprintf(stderr, "Error: --spacing requires k <= %zu for this alphabet, or k <= %zu with -2/--long-kmers (k: %d).", nremperres64(), nremperres128(), k_);
+            std::fprintf(stderr, " Longer k-mers are rolling-hashed, which does not support spaced seeds.\n");
+            std::exit(1);
+        }
     }
     void w(int neww) {w_ = neww; sp_.resize(k_, w_); rh128_.window(neww); rh_.window(neww);}
     std::string to_string() const;
