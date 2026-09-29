@@ -1,4 +1,5 @@
 #include "fastxsketch.h"
+#include <charconv>
 
 namespace dashing2 {
 SketchingResult SketchingResult::merge(SketchingResult *start, size_t n, const std::vector<std::string> &names=std::vector<std::string>()) {
@@ -92,6 +93,20 @@ std::string makedest(Dashing2Options &opts, const std::string &path, bool iskmer
         ret = ret + ".ct_threshold";
         if(std::fmod(opts.count_threshold_, 1.)) ret = ret + std::to_string(opts.count_threshold_);
         else ret = ret + std::to_string(int(opts.count_threshold_));
+    }
+    if(opts.kmer_downsample_frac_ != 1.) {
+        char buf[32];
+        ret += ".ds";
+        ret.append(buf, std::to_chars(buf, buf + sizeof(buf), opts.kmer_downsample_frac_).ptr);
+    }
+    if(entmin)
+        ret += ".entmin";
+    if(opts.homopolymer_compress_minimizers_)
+        ret += ".hpc";
+    if(opts.fs_) {
+        // Identify the filter set by its contents, since the same path can hold different sets
+        char buf[32];
+        ret.append(buf, std::snprintf(buf, sizeof(buf), ".fs%016llx", static_cast<unsigned long long>(opts.fs_->digest())));
     }
     if(opts.sspace_ != SPACE_SET && opts.sspace_ != SPACE_EDIT_DISTANCE) {
         ret += '.';

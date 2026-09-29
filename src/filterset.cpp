@@ -30,5 +30,7 @@ namespace dashing2 {
             //std::fprintf(stderr, "Sorted filterset of size %zu\n", data_.size());
             // Maybe replace with a faster sorter
         }
+        digest_ = fshasher_(uint64_t(k_));
+        for(const T x: data_) digest_ = fshasher_(digest_ ^ x);
     }
 } // namespace dashing2
