@@ -60,13 +60,21 @@ struct ContainEncoders {
     }
 };
 
-std::vector<flat_hash_map<uint64_t, uint64_t>> get_results(const ContainEncoders &encs, std::vector<std::string> input_files, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer) {
+std::vector<flat_hash_map<uint64_t, uint64_t>> get_results(const ContainEncoders &encs, std::vector<std::string> input_files, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer, const bool windowed) {
     std::vector<flat_hash_map<uint64_t, uint64_t>> res(input_files.size());
     //KSeqHolder kseqs(nthreads);
     OMP_PFOR_DYN
     for(size_t i = 0; i < input_files.size(); ++i) {
         auto &myres = res[i];
+        // With windows, the encoder reports the minimizer of every window, so a minimizer
+        // repeated by consecutive windows is counted as one occurrence.
+        uint64_t lastkmer = 0;
+        bool havelast = false;
         auto func = [&](const uint64_t kmer) {
+            if(windowed) {
+                if(havelast && kmer == lastkmer) return;
+                lastkmer = kmer; havelast = true;
+            }
             if(kmer < minkmer || kmer > maxkmer) return;
             auto kmeridit = kmer2ids.find(kmer);
             if(kmeridit == kmer2ids.end()) return;
@@ -94,7 +102,7 @@ void par_reduce(T *x, size_t n) {
     }
 }
 
-flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, std::string input_file, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer, const int nthreads) {
+flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, std::string input_file, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer, const int nthreads, const bool windowed) {
     std::vector<flat_hash_map<uint64_t, uint64_t>> res(nthreads);
     std::vector<std::string> sf;
     for_each_substr([&sf](const auto &x) {sf.push_back(x);}, input_file);
@@ -103,7 +111,13 @@ flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, st
     parser.start();
     for(size_t i = 0; i < size_t(nthreads); ++i) {
         threads.emplace_back([&,i]() {
-            auto func = [minkmer,maxkmer,&kmer2ids,&myres=res[i]](const uint64_t kmer) __attribute__((always_inline)) {
+            uint64_t lastkmer = 0;
+            bool havelast = false;
+            auto func = [&,&myres=res[i]](const uint64_t kmer) __attribute__((always_inline)) {
+                if(windowed) {
+                    if(havelast && kmer == lastkmer) return;
+                    lastkmer = kmer; havelast = true;
+                }
                 if(kmer < minkmer || kmer > maxkmer) return;
                 auto kmeridit = kmer2ids.find(kmer);
                 if(kmeridit == kmer2ids.end()) return;
@@ -112,7 +126,10 @@ flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, st
                 else ++it->second;
             };
             for(auto rg = parser.getReadGroup();parser.refill(rg);) {
-                for(const auto &seq: rg) encs.for_each(func, seq.seq.data(), seq.seq.size());
+                for(const auto &seq: rg) {
+                    havelast = false;
+                    encs.for_each(func, seq.seq.data(), seq.seq.size());
+                }
             }
         });
     }
@@ -222,10 +239,10 @@ int contain_main(int argc, char **argv) {
     std::vector<flat_hash_map<uint64_t, uint64_t>> res;
     if(nthreads > 1 && nq < size_t(nthreads)) {
         for(const auto &sf: streamfiles) {
-            res.emplace_back(get_results_sf(encs, sf, kmer2ids, maxkmer, minkmer, nthreads));
+            res.emplace_back(get_results_sf(encs, sf, kmer2ids, maxkmer, minkmer, nthreads, w > k));
         }
     } else {
-        res = get_results(encs, streamfiles, kmer2ids, maxkmer, minkmer);
+        res = get_results(encs, streamfiles, kmer2ids, maxkmer, minkmer, w > k);
     }
     const size_t tablesize = nitems * streamfiles.size();
     const size_t table2size = tablesize * 2;
@@ -250,7 +267,7 @@ int contain_main(int argc, char **argv) {
         for(size_t j = 0; j < nitems; ++j) {
             if(matches[j]) {
                 cmatptr[j] = ssiv * matches[j];
-                cstatsptr[j] = matchsums[j] / matches[j];
+                cstatsptr[j] = float(matchsums[j]) / matches[j];
             }
         }
         std::free(matches);
