@@ -257,6 +257,12 @@ FastxSketchingResult &fastx2sketch(FastxSketchingResult &ret, Dashing2Options &o
     const uint64_t nitems = paths.size();
     std::string kmeroutpath, kmernamesoutpath;
     if(outpath.size() && outpath != "-" && outpath != "/dev/stdout") {
+        // The stacked k-mer file holds one sampled k-mer per sketch register, which only
+        // sketch modes produce; --set, --countdict and --seq keep k-mers in per-input files.
+        if(opts.save_kmers_ && opts.kmer_result_ >= FULL_MMER_SET) {
+            std::fprintf(stderr, "Error: --save-kmers with -o builds a k-mer database only in sketch modes (the default, --full, --bagminhash, --prob); it is not supported with --set, --countdict or --seq.\n");
+            std::exit(1);
+        }
         const size_t offset = sizeof(nitems) * 2 + sizeof(double) * nitems;
         ::truncate(outpath.data(), offset);
         ret.signatures_.assign(outpath, offset);
