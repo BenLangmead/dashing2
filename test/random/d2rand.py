@@ -897,8 +897,12 @@ def sketch_modes():
         for nb in (1, 2, 4):
             if kind == "prob" and nb == 4:
                 continue
-            L.append(SketchMode("%s-fc%d" % (base, nb), bf + ["--fastcmp", str(nb)], kind, "log"))
-            if kind != "prob":
+            if kind == "prob":
+                # dashing2 compresses --prob registers, which hold hashes of the selected items, to b-bit
+                # signatures rather than log-compressing them.
+                L.append(SketchMode("%s-fc%d" % (base, nb), bf + ["--fastcmp", str(nb)], kind, "bbit", bits=8 * nb))
+            else:
+                L.append(SketchMode("%s-fc%d" % (base, nb), bf + ["--fastcmp", str(nb)], kind, "log"))
                 L.append(SketchMode("%s-bb%d" % (base, nb), bf + ["--bbit-sigs", "--fastcmp", str(nb)], kind,
                                     "bbit", bits=8 * nb))
     # Directly sketched log-compressed SetSketches with preset (a, b).
@@ -926,7 +930,7 @@ def sketch_truth(mode, ca, cb, k):
     return J, nA, nB, nI
 
 
-def sketch_z(mode, meas, est, J, nA, nB, nI, m, k, base=None, diag=False, shift=0.0):
+def sketch_z(mode, meas, est, J, nA, nB, nI, m, k, base=None, diag=False):
     """Returns (z, regular) for one printed estimate, or None if the pair has no defined exact value.
 
     diag selects the cardinality check (the diagonal of --union-size --square).
@@ -951,7 +955,6 @@ def sketch_z(mode, meas, est, J, nA, nB, nI, m, k, base=None, diag=False, shift=
         est = j_from_mash(est, k)
         meas = "similarity"
     c = collision_prob(mode.comp, mode.bits, base if base is not None else mode.base)
-    J = J + shift  # shift moves the expectation for a documented bias (shift is 0 otherwise)
     if mode.kind == "prob":
         truth = J
         se1 = math.sqrt((J + (1 - J) * c) * (1 - J - (1 - J) * c) / m) / (1 - c)

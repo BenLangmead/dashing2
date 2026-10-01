@@ -34,34 +34,8 @@ PRESETS = {
 }
 SIZES = [128, 200, 256, 300, 500, 512, 1000, 1001, 1024, 1500, 2048, 4096]
 # Known issues in the code under test. Failures that match one are reported as
-# XFAIL (or as failures with --strict) and their trials are left out of the
-# aggregate statistics. README.md has the details and minimal reproductions.
-KNOWN = {
-    ROW_LOSS[0]: ROW_LOSS[1],
-    "ab-pad": "directly sketched compressed SetSketch (--fastcmp-bytes/-shorts/-words, --setsketch-ab) "
-              "gives near-zero similarity unless the sketch size times the register width is a multiple of 8 bytes",
-    "ab-race": "directly sketched compressed SetSketch (--fastcmp-bytes/-shorts/-words, --setsketch-ab) gives "
-               "results that differ between runs with -p > 1 (often for 16-bit registers, where it can also "
-               "segfault; rarely for 8- and 32-bit registers)",
-    "fc-all-empty": "with --fastcmp N (registers log-compressed after sketching) and no k-mers in any input, the "
-                    "fitted a and b are NaN and intersection and union print inf",
-    "ab-card-floor": "the preset SetSketch-(a,b) modes cannot represent cardinalities below about 1/a: an empty "
-                     "input reports 1/a (0.05 for --fastcmp-bytes/-words, 16.7 for --fastcmp-shorts, whose a = 0.06) "
-                     "and inputs with fewer than about 3/a k-mers are inflated",
-    "prob-fc1-bias": "--prob --fastcmp 1 leaves register collisions uncorrected: similarity is biased up by "
-                     "about 0.75 ln(b)/4 (about 0.007) when J_P is near 0",
-}
-AB_BYTES = {"full-ab-bytes": 1, "full-ab-shorts": 2, "full-ab-words": 4}
-AB_A = {"full-ab-bytes": 20.0, "full-ab-shorts": 0.06, "full-ab-words": 19.77}
-
-
-def known_issue(mode, p):
-    """The known issue id that explains any failure in this trial's configuration, if one applies."""
-    if mode.name in AB_BYTES and (p["S"] * AB_BYTES[mode.name]) % 8:
-        return "ab-pad"
-    if mode.name in AB_BYTES and p["threads"] > 1:
-        return "ab-race"
-    return None
+# XFAIL (or as failures with --strict). README.md has the details.
+KNOWN = dict([ROW_LOSS])
 # Allowed |mean z| on top of 3 / sqrt(trials). Cardinality estimators carry
 # an O(1/m) upward bias (they invert a sum of m minima), which reaches the
 # union and intersection, and symmetric containment divides by the smaller of
@@ -120,8 +94,6 @@ def run_one(args, d2, preset, modes, zmax):
             mode.name, " ".join(mode.flags), p["k"], p["S"], p["seed"], p["threads"], " -2" if p["long"] else "",
             "" if p["canon"] else " --no-canon", p["L"])
         res = TrialResult(idx, desc)
-        kid = known_issue(mode, p)
-        res.known_trial = kid
         res.tags = {"mode": mode.name, "k": k_band(p["k"], p["long"]), "-2": p["long"],
                     "threads": "p1" if p["threads"] == 1 else "p>1", "canon": p["canon"]}
         files = make_inputs(rng, p, wd, mode)
@@ -133,8 +105,6 @@ def run_one(args, d2, preset, modes, zmax):
         if not p["canon"]:
             base.append("--no-canon")
         n = len(files)
-        if kid is None and mode.comp == "log" and mode.base is None and not any(counts):
-            kid = res.known_trial = "fc-all-empty"
         truth = {(i, j): sketch_truth(mode, counts[i], counts[j], k) for i in range(n) for j in range(n)}
         meas_list = list(mode.measures())  # for set and weighted modes the union diagonal gives |A|
         printed = {}
@@ -142,7 +112,7 @@ def run_one(args, d2, preset, modes, zmax):
             try:
                 M = d2.cmp(base + ["--square"] + MEAS_FLAGS[meas], files, wd)
             except D2Error as e:
-                res.check(False, "run %s" % meas, str(e), known=run_error_known(e, kid))
+                res.check(False, "run %s" % meas, str(e), known=run_error_known(e))
                 continue
             cbase = M.compression_base()
             for i in range(n):
@@ -161,22 +131,10 @@ def run_one(args, d2, preset, modes, zmax):
                     if r is None:
                         continue
                     z, regular = r
-                    kz = kid
-                    if kz is None and mode.name in AB_A and min(nA, nB) < 3.0 / AB_A[mode.name]:
-                        kz = "ab-card-floor"
-                        regular = False
-                    if (kz is None and mode.name == "pmh-fc1" and key in ("similarity", "mash") and z > zmax
-                            and cbase):
-                        # Accept the failure as the known bias if it disappears once the uncorrected
-                        # collision rate is added to the expectation.
-                        cc = 0.75 * math.log(cbase) / 4 * (1 - J)
-                        z2 = sketch_z(mode, key, est, J, nA, nB, nI, m, k, base=cbase, shift=cc)
-                        if z2 is not None and abs(z2[0]) <= zmax:
-                            kz = "prob-fc1-bias"
                     ok = res.check(abs(z) <= zmax, "%s[%d,%d]" % (key, i, j),
                                    "z=%.2f estimate %s exact %s (J=%.4g |A|=%g |B|=%g |AnB|=%g m=%d%s)" % (
                                        z, est, nA if i == j else (J if meas in ("similarity", "mash") else None),
-                                       J, nA, nB, nI, m, " b=%g" % cbase if cbase else ""), known=kz)
+                                       J, nA, nB, nI, m, " b=%g" % cbase if cbase else ""))
                     if not (i > j and meas in ("similarity", "intersection", "union", "mash", "symcontain")):
                         # Symmetric measures are recorded once per unordered pair.
                         res.data.append((mode.name, key, z, regular, k, p["long"]))
@@ -196,22 +154,22 @@ def run_one(args, d2, preset, modes, zmax):
                         continue
                     if U > 0:
                         res.check(close(I / U, J, rel=2e-4, abs_=2e-6), "identity sim=I/U[%d,%d]" % (i, j),
-                                  "similarity %s but intersection/union %s/%s" % (J, I, U), known=kid)
+                                  "similarity %s but intersection/union %s/%s" % (J, I, U))
                     res.check(close(I + U, cA + cB, rel=2e-4), "identity I+U=|A|+|B|[%d,%d]" % (i, j),
-                              "I+U=%s but |A|+|B|=%s" % (I + U, cA + cB), known=kid)
+                              "I+U=%s but |A|+|B|=%s" % (I + U, cA + cB))
                     C = g("containment")
                     if C is not None and cA > 0:
                         res.check(close(C, I / cA, rel=2e-4, abs_=2e-6), "identity C=I/|A|[%d,%d]" % (i, j),
-                                  "containment %s but I/|row| = %s" % (C, I / cA), known=kid)
+                                  "containment %s but I/|row| = %s" % (C, I / cA))
                     SC = g("symcontain")
                     if SC is not None and min(cA, cB) > 0:
                         res.check(close(SC, I / min(cA, cB), rel=2e-4, abs_=2e-6),
                                   "identity SC=I/min[%d,%d]" % (i, j), "symmetric containment %s but I/min = %s" % (
-                                      SC, I / min(cA, cB)), known=kid)
+                                      SC, I / min(cA, cB)))
                     d = g("mash")
                     if d is not None and J > 0:
                         res.check(close(j_from_mash(d, k), J, rel=2e-4, abs_=2e-6), "identity mash(J)[%d,%d]" % (i, j),
-                                  "mash %s gives J=%s, similarity %s" % (d, j_from_mash(d, k), J), known=kid)
+                                  "mash %s gives J=%s, similarity %s" % (d, j_from_mash(d, k), J))
         # Thread independence: with a fixed --seed, -p N must print what -p 1 prints.
         if p["threads"] > 1:
             meas = mode.measures()[0]
@@ -223,9 +181,9 @@ def run_one(args, d2, preset, modes, zmax):
                     for j in range(n):
                         a, b = printed.get((meas, i, j)), M1.get(i, j)
                         res.check(a == b, "-p%d=-p1 %s[%d,%d]" % (p["threads"], meas, i, j),
-                                  "-p %d printed %s, -p 1 printed %s" % (p["threads"], a, b), known=kid)
+                                  "-p %d printed %s, -p 1 printed %s" % (p["threads"], a, b))
             except D2Error as e:
-                res.check(False, "run -p 1", str(e), known=run_error_known(e, kid))
+                res.check(False, "run -p 1", str(e), known=run_error_known(e))
         # Cardinalities written by `dashing2 sketch -o` (names.txt).
         try:
             cards = d2.cardinalities(base, files, wd)
@@ -234,15 +192,12 @@ def run_one(args, d2, preset, modes, zmax):
                 diag = printed.get(("union", i, i))
                 if mode.kind == "set" and diag is not None:
                     res.check(close(cards[i], diag, rel=2e-5), "names.txt=diag[%d]" % i,
-                              "names.txt %s, --union-size diagonal %s" % (cards[i], diag), known=kid)
+                              "names.txt %s, --union-size diagonal %s" % (cards[i], diag))
                 r = sketch_z(mode, "card", cards[i], J, nA, nB, nI, m, k, diag=True)
-                kc = kid
-                if kc is None and mode.name in AB_A and nA < 3.0 / AB_A[mode.name]:
-                    kc = "ab-card-floor"
                 res.check(abs(r[0]) <= zmax, "names.txt card[%d]" % i, "z=%.2f estimate %s exact %s" % (
-                    r[0], cards[i], nA), known=kc)
+                    r[0], cards[i], nA))
         except D2Error as e:
-            res.check(False, "sketch -o", str(e), known=kid)
+            res.check(False, "sketch -o", str(e))
         return res
     return trial
 
@@ -251,8 +206,6 @@ def aggregates(results, args, verbose):
     """Bias and spread checks over all trials; returns the number of failing groups."""
     groups = {}
     for r in results:
-        if getattr(r, "known_trial", None):
-            continue
         for (mode, key, z, regular, k, lng) in r.data:
             if regular and math.isfinite(z):
                 groups.setdefault((mode, key), {}).setdefault(r.idx, []).append(z)
@@ -284,15 +237,13 @@ def calibration_table(results):
     """Per mode and measure: trials, z count, mean z, SD z, max |z| (all pairs and regular pairs)."""
     groups = {}
     for r in results:
-        if getattr(r, "known_trial", None):
-            continue
         for (mode, key, z, regular, k, lng) in r.data:
             g = groups.setdefault((mode, key), dict(all=[], reg=[], trials=set()))
             g["all"].append(z)
             if regular:
                 g["reg"].append(z)
                 g["trials"].add(r.idx)
-    print("calibration (trials matching a known issue excluded): mode measure | trials n mean_z sd_z max|z| "
+    print("calibration: mode measure | trials n mean_z sd_z max|z| "
           "(regular pairs) | n max|z| (all pairs)")
     for (mode, key), g in sorted(groups.items()):
         mu, sd = mean_sd(g["reg"])

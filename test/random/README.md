@@ -163,8 +163,10 @@ also says the direct limit is 31 for DNA; the code uses 32.)
 Each trial picks a sketch mode round robin from 27 configurations: OPH
 (default), `--full`, `-B` (BagMinHash, weighted Jaccard), `--prob`
 (ProbMinHash, probability Jaccard), each with `--fastcmp 1|2|4` (registers
-log-compressed after sketching) and `--bbit-sigs --fastcmp 1|2|4` (b-bit
-signatures; not for `--prob`), and the directly sketched compressed
+log-compressed after sketching; `--prob` uses 1 and 2, and dashing2 turns its
+registers, which hold hashes of the selected items, into b-bit signatures
+instead) and `--bbit-sigs --fastcmp 1|2|4` (b-bit signatures; not for
+`--prob`), and the directly sketched compressed
 SetSketches `--full --fastcmp-bytes|-shorts|-words`. It draws k (12 to 160),
 `-S` (128 to 4096, including sizes that are not powers of two), `--seed`,
 `-p`, `-2` (25%) and `--no-canon` (15%), three related inputs, and runs every
@@ -207,7 +209,8 @@ the correlations below follow from that model):
   differ by a logistic variable; the chance that they fall in the same bucket
   of width ln b is about ln(b)/4 for equal cardinalities and smaller
   otherwise). dashing2 prints the base it fits for `--fastcmp N`; the presets
-  fix b = 1.2, 1.0005 and 1.0000000109724.
+  fix b = 1.2, 1.0005 and 1.0000000109724. `--prob --fastcmp N` uses b-bit
+  signatures with 8N bits.
 * Var A = kappa^2 (A^2 / m + 1), Var B likewise, Corr(A, B) = J,
   Cov(J, A) = kappa J A |B \ A| / (|A u B| m), with kappa = 1 for OPH and
   FullSetSketch and kappa = 0 for `-B` and `--prob`, whose cardinalities are
@@ -242,7 +245,11 @@ python3 test/random/suite_c_sketch.py --preset calibrate --seed 101 -j 6
 ```
 
 Mean z / SD z over regular pairs (trials matching a known issue, below,
-excluded); "exact" means the cardinality is an exact total.
+excluded); "exact" means the cardinality is an exact total. This calibration
+was run on `test/all-fixes`, before the fixes listed under "Fixed issues"
+below; in particular `pmh-fc1` and `pmh-fc2` still log-compressed the
+`--prob` registers, and trials of the `full-ab-*` modes with -p > 1 or a
+sketch size that does not fill whole 64-bit words were excluded.
 
 | mode | trials | similarity | intersection | union | containment | symcontain | card | max abs z (all pairs) |
 |---|---|---|---|---|---|---|---|---|
@@ -277,8 +284,8 @@ excluded); "exact" means the cardinality is an exact total.
 Pooled over modes: similarity -0.003 / 0.986 (10274 z, 4746 trials),
 intersection -0.005 / 0.973, union +0.024 / 0.970, containment -0.008 / 0.983,
 symmetric containment +0.022 / 0.980, cardinality +0.025 / 0.935.
-(*) The 8.8 for `full-ab-shorts` is a tiny-input pair covered by the
-`ab-card-floor` known issue. The OPH cardinality SD of 0.85 is below 1 because
+(*) The 8.8 for `full-ab-shorts` is a tiny-input pair affected by the
+`ab-card-floor` issue (fixed since). The OPH cardinality SD of 0.85 is below 1 because
 the OPH estimator is more precise than 1/sqrt(m) for sets smaller than m.
 
 Thresholds chosen from this:
@@ -296,42 +303,9 @@ Thresholds chosen from this:
 
 ## Known issues in the tested code (expected failures)
 
-These are genuine discrepancies of the fixed build (`test/all-fixes`) found
-by the suites. Matching failures are printed as `XFAIL[id]` and summarized at
-the end, their trials are left out of the aggregates, and `--strict` turns
-them into failures. Tolerances were not loosened for them.
-
-* `ab-pad`: the directly sketched compressed SetSketch modes
-  (`--fastcmp-bytes`, `--fastcmp-shorts`, `--fastcmp-words`, and
-  `--setsketch-ab A,B --fastcmp N`) return near-zero similarity (and wrong
-  intersection, union and containment) whenever the sketch size times the
-  register width is not a multiple of 8 bytes, e.g.
-  `dashing2 cmp -k 21 -S 500 --full --fastcmp-bytes a.fa b.fa` gives 0.0075
-  for a pair whose Jaccard index is 0.38 (S = 504 or 1000 gives 0.37-0.39).
-  The padding code in `Dashing2DistOptions` (src/cmp_main.h, around line 86)
-  pads `opts.sketchsize_` rather than `this->sketchsize_`, and computes the
-  remainder as `sketchsize % sizeof(RegT) / fd_level` instead of
-  `sketchsize % (sizeof(RegT) / fd_level)`.
-* `ab-race`: the same directly sketched modes give results that change from
-  run to run with `-p > 1`: almost always for 16-bit registers
-  (`--fastcmp-shorts`), where they also segfault occasionally, and in about 1
-  run in 100 under load for 8- and 32-bit registers. `-p 1` is deterministic
-  and `--fastcmp N` after sketching is not affected.
-* `ab-card-floor`: those preset modes cannot represent cardinalities below
-  about 1/a: an empty input reports 1/a (0.046 for `--fastcmp-bytes`, 0.051 for
-  `--fastcmp-words`, 16.7 for `--fastcmp-shorts`, whose preset a = 0.06), and
-  with `--fastcmp-shorts` 10 k-mers read as about 22.
-* `fc-all-empty`: with `--fastcmp N` (log compression after sketching) and no
-  k-mers in any input, the fitted a and b are NaN and intersection and union
-  print inf (`dashing2 cmp --fastcmp 1 --union-size --square e1.fa e2.fa`
-  with two inputs shorter than k).
-* `prob-fc1-bias`: `--prob --fastcmp 1` does not remove chance register
-  collisions: for unrelated inputs (J_P = 0) the similarity averages 0.0069
-  (40 seeds, S = 4096; ln(b)/4 = 0.0093) while `-B --fastcmp 1` and
-  `--full --fastcmp 1` average 0.0006-0.0008 (their remaining positive mean
-  comes from clamping at 0). A per-estimate failure is attributed to this
-  issue only if it disappears when 0.75 ln(b)/4 (1 - J) is added to the
-  expectation.
+These are genuine discrepancies of the fixed build found by the suites.
+Matching failures are printed as `XFAIL[id]` and summarized at the end, and
+`--strict` turns them into failures. Tolerances were not loosened for them.
 
 * `emit-row-loss`: rarely, `dashing2 cmp` exits 0 but prints a matrix with a
   row missing. The suites verify the printed row names, so this shows up as
@@ -345,6 +319,41 @@ them into failures. Tolerances were not loosened for them.
   while the comparison loop appends to the deque under it; on a weakly ordered
   CPU (Apple Silicon) the writer can see a new element before its contents and
   then pop it after printing nothing.
+
+## Fixed issues
+
+The suites found these discrepancies in `test/all-fixes` and registered them
+as expected failures; each is fixed on its own branch (merged into
+`test/all-fixes-2`), and the suites now check the affected cases normally.
+
+* `ab-pad` (`fix/ab-sketchsize-padding`): the directly sketched compressed
+  SetSketch modes (`--fastcmp-bytes`, `--fastcmp-shorts`, `--fastcmp-words`
+  and `--setsketch-ab A,B --fastcmp N`) gave near-zero similarity whenever
+  the sketch size times the register width was not a multiple of 8 bytes,
+  because the `Dashing2DistOptions` constructor (src/cmp_main.h) padded the
+  caller's options instead of its own sketch size. The sketch size is now
+  padded to whole 64-bit words.
+* `ab-race` (`fix/ab-thread-safety`): those modes gave results that changed
+  from run to run with `-p > 1` (and occasionally segfaulted with
+  `--fastcmp-shorts`). `SetSketch::harmean()` shared a static table of powers
+  between threads, and the per-thread sketches kept their skip cutoff and
+  (with `-m`) their pending k-mer counts from one file to the next. The table
+  is gone and `clear()` resets all of that state.
+* `ab-card-floor` (`fix/ab-cardinality-floor`): those modes could not report
+  a cardinality below about 1/a (an empty input read as 0.046, 0.051 or 16.7,
+  and 10 k-mers as 22 with `--fastcmp-shorts`). `SetSketch::cardinality()`
+  now treats registers still at 0 as censored, so an empty input gives 0 and
+  small inputs are unbiased; estimates without zero registers are unchanged.
+* `fc-all-empty` (`fix/fastcmp-all-empty`): with `--fastcmp N` and no k-mer
+  in any input, the fitted a and b were NaN and every measure printed inf.
+  `make_compressed()` (src/cmp_core.cpp) now uses the preset a and b when
+  there is nothing to fit, so the output equals the uncompressed output.
+* `prob-fc1-bias` (`fix/prob-fastcmp-collisions`): `--prob --fastcmp 1`
+  did not remove chance register agreements (similarity about 0.007 at
+  J_P = 0 for small inputs), because `--prob` registers hold hashes of the
+  selected items, to which the SetSketch collision correction of log
+  compression does not apply. `--prob --fastcmp N` now compresses them to
+  b-bit signatures, whose chance agreements are removed exactly.
 
 Minor observation not treated as a failure: with an empty operand, compressed
 modes may report a nonzero intersection (one chance register match, e.g.
