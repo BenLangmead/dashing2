@@ -16,6 +16,15 @@ std::pair<std::vector<LSHIDType>, std::vector<std::vector<LSHIDType>>> dedup_cor
 void dedup_emit(const std::vector<LSHIDType> &, const std::vector<std::vector<LSHIDType>> &constituents, const Dashing2DistOptions &opts, const SketchingResult &result);
 
 
+// --prob registers hold hashes of the selected items (see ProbMinHash in d2.h), so only their equality
+// carries information. Log compression (--fastcmp without --bbit-sigs) assumes registers distributed like
+// SetSketch minima, and its collision correction does not apply to these hashes, whose distribution depends
+// on the input. They are compressed to b-bit signatures instead, whose chance collisions compare() removes.
+static INLINE int effective_truncation_method(const Dashing2DistOptions &opts) {
+    if(opts.sspace_ == SPACE_PSET && opts.truncation_method_ <= 0) return 1;
+    return opts.truncation_method_;
+}
+
 template<typename T> INLINE uint64_t reg2sig(const T x) {
     if constexpr(sizeof(T) <= 4) {
         uint32_t v = 0;
@@ -363,7 +372,7 @@ LSHDistType compare(const Dashing2DistOptions &opts, const SketchingResult &resu
         if(verbosity >= EXTREME) {
             std::fprintf(stderr, "Comparing compressed representations.\n");
         }
-        const bool bbit_c = opts.truncation_method_ > 0;
+        const bool bbit_c = effective_truncation_method(opts) > 0;
         std::pair<uint64_t, uint64_t> res{0, 0};
         if(bbit_c) {
             auto &equal_regs = std::get<0>(res);
@@ -738,7 +747,7 @@ void cmp_core(const Dashing2DistOptions &opts, SketchingResult &result) {
     if(verbosity >= DEBUG) {
         std::fprintf(stderr, "Making compressed.\n");
     }
-    make_compressed(cret, opts.truncation_method_, opts.fd_level_, result.signatures_, result.kmers_, opts.sspace_ == SPACE_EDIT_DISTANCE, opts.compressed_a_, opts.compressed_b_, opts.sketch_compressed_set);
+    make_compressed(cret, effective_truncation_method(opts), opts.fd_level_, result.signatures_, result.kmers_, opts.sspace_ == SPACE_EDIT_DISTANCE, opts.compressed_a_, opts.compressed_b_, opts.sketch_compressed_set);
     if(verbosity >= DEBUG) {
         std::fprintf(stderr, "Made compressed.\n");
     }
