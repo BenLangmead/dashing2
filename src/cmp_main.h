@@ -84,14 +84,12 @@ struct Dashing2DistOptions: public Dashing2Options {
         if(outfile_path_.empty() || outfile_path_ == "-") outfile_path_ = "/dev/stdout";
         if(nLSH < 1) nLSH = 1;
         if(this->sketch_compressed_set) {
-            if(size_t rem = opts.sketchsize_ % sizeof(RegT) / opts.fd_level_; rem != 0) {
-                opts.sketchsize_ += sizeof(RegT) / opts.fd_level_ - rem;
-                std::fprintf(stderr, "Sketchsize is not %zu-bit register multiple; padding the number of registers to fit. New number of registers: %zu\n", sizeof(RegT) * 8, opts.sketchsize_);
-            }
-            const size_t mul = 8 / nbytes_for_fastdists;
-            if(const size_t rem = opts.sketchsize_ % size_t(8 / nbytes_for_fastdists); rem) {
-                std::fprintf(stderr, "When sketching compressed, always pad to 64-bit sets.\n");
-                opts.sketchsize_ += mul - rem;
+            // Compressed registers are packed into RegT words and each sketch starts on a word boundary,
+            // so the sketch size used for sketching and comparison is padded to a whole number of words.
+            const size_t per_word = sizeof(RegT) / fd_level_;
+            if(const size_t rem = sketchsize_ % per_word; rem) {
+                sketchsize_ += per_word - rem;
+                std::fprintf(stderr, "Sketch size is not a multiple of %zu registers of %g bytes; padding the number of registers to %zu.\n", per_word, fd_level_, size_t(sketchsize_));
             }
         }
         validate();
