@@ -203,6 +203,8 @@ SimpleMHRet wmh_from_file(std::string idpath, std::string cpath, size_t sksz, in
         PERF2(float);
     } else if(usef32 == -1) {
         PERF2(uint16_t);
+    } else if(usef32 == -2) {
+        PERF2(uint32_t);
     } else {
         PERF2(double);
     }
