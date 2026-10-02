@@ -366,7 +366,11 @@ int wsketch_main(int argc, char **argv) {
     std::ofstream ofs(outpref + ".sampled.tw.txt");
     std::string msg = std::string("Total weight: ") + std::to_string(total_weight) + ";" + argv[optind];
     if(optind + 1 < argc) msg += std::string(";") + argv[optind + 1];
-    msg += ';' + (f32 == 1 ? 'f' : f32 == 0 ?'d': 'H') + ';' + (u32 ? 'W': 'L');
+    // Weight type (f: float32, d: float64, H: 16-bit, U: 32-bit integers) and id width (W: 32-bit, L: 64-bit)
+    msg += ';';
+    msg += f32 == 1 ? 'f' : f32 == 0 ? 'd' : f32 == -1 ? 'H' : 'U';
+    msg += ';';
+    msg += u32 ? 'W' : 'L';
     msg += '\n';
     ofs <<  msg;
     std::cerr << msg;
