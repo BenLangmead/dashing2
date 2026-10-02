@@ -34,7 +34,7 @@ S=1024
 w=$(( ($(wc -c < one.sk) - 24) / S ))
 "$D2" sketch --leafcutter -S $S -o lf.sk a_perind.counts >/dev/null 2>&1
 check "sketch exit status" $? 0
-check "stacked file size" "$(wc -c < lf.sk 2>/dev/null)" $(( 16 + 3 * 8 + 3 * S * w ))
+check "stacked file size" "$(wc -c < lf.sk 2>/dev/null | tr -d ' ')" $(( 16 + 3 * 8 + 3 * S * w ))
 check "header" "$(od -An -tu8 -N16 lf.sk 2>/dev/null | xargs)" "3 $S"
 # Estimated cardinalities from the names file: 300, 300 and 300 junctions, within 10%.
 card=$(python3 -c '
