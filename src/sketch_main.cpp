@@ -136,6 +136,11 @@ int sketch_main(int argc, char **argv) {
         opts.kmer_result_ = FULL_SETSKETCH;
     }
     opts.bed_parse_normalize_intervals_ = normalize_bed;
+    // LeafCutter sketches are kept only in the stacked -o file, as there are no per-input sketch files
+    if(opts.dtype_ == DataType::LEAFCUTTER && outfile.empty() && cmpout.empty()) {
+        std::fprintf(stderr, "Error: sketch --leafcutter writes its sketches only to the file given by -o; pass -o (or --cmpout to compare them).\n");
+        return 1;
+    }
     Dashing2DistOptions distopts(opts, ok, of, nbytes_for_fastdists, truncate_mode, topk_threshold, similarity_threshold, cmpout, exact_kmer_dist, refine_exact, nLSH);
     if(paths.empty()) {
         std::fprintf(stderr, "No paths provided. See usage.\n");

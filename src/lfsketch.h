@@ -17,8 +17,8 @@ struct LFResult: public std::tuple<std::vector<std::string>, std::vector<std::st
     const auto &filenames() const {return std::get<3>(*this);}
     auto &nsamples_per_file() {return std::get<4>(*this);}
     const auto &nsamples_per_file() const {return std::get<4>(*this);}
-    auto &cardinalities() {return std::get<4>(*this);}
-    const auto &cardinalities() const {return std::get<4>(*this);}
+    auto &cardinalities() {return std::get<5>(*this);}
+    const auto &cardinalities() const {return std::get<5>(*this);}
     static LFResult merge_results(const LFResult *start, size_t n, size_t sketchsize);
 
 };

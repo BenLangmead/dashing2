@@ -16,6 +16,7 @@ LFResult LFResult::merge_results(const LFResult *start, size_t n, size_t sketchs
     const size_t total_samples = offsets.back();
     const size_t ss = start->registers().size() / start->sample_names().size();
     ret.registers().resize(total_samples * ss);
+    ret.cardinalities().resize(total_samples);
     auto &destnames = ret.sample_names();
     destnames.resize(total_samples);
     // Merge the names together, merge samples together
