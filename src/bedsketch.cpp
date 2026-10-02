@@ -81,7 +81,6 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
             for(auto i = start; i < stop; ctr.add(chrhash ^ i++, inc));
         }
     }
-    std::FILE *ofp = bfopen(cache_path.data(), "w");
     if(opts.sspace_ > SPACE_SET) {
         if(opts.ct() == EXACT_COUNTING) {
             if(opts.sspace_ == SPACE_MULTISET) {
@@ -89,23 +88,17 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
                 ctr.finalize(bmh);
                 std::copy(bmh.data(), bmh.data() + opts.sketchsize_, retvec.data());
                 ret.second = bmh.total_weight();
-                std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);
-                std::fwrite(bmh.data(), opts.sketchsize_, sizeof(RegT), ofp);
             } else {
                 sketch::pmh2_t pmh(opts.sketchsize_);
                 ctr.finalize(pmh);
                 std::copy(pmh.data(), pmh.data() + opts.sketchsize_, retvec.data());
                 ret.second = pmh.total_weight();
-                std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);
-                std::fwrite(pmh.data(), opts.sketchsize_, sizeof(RegT), ofp);
             }
         } else {
 #define __FS() do {\
     for(size_t i = 0; i < csz; ++i) sketcher.update(i, ctr.count_sketch_[i]);\
     auto p = sketcher.data();\
     ret.second = sketcher.total_weight();\
-    std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);\
-    std::fwrite(p, opts.sketchsize_, sizeof(RegT), ofp);\
     std::copy(p, p + opts.sketchsize_, retvec.data());\
     } while(0)
             const size_t csz = ctr.count_sketch_.size();
@@ -121,11 +114,16 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     } else {
         ret.second = op ? opss.getcard(): ss.getcard();
         RegT *sptr = op ? opss.data(): ss.data();
-        std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);\
-        std::fwrite(sptr, opts.sketchsize_, sizeof(RegT), ofp);
         std::copy(sptr, sptr + opts.sketchsize_, retvec.data());
     }
-    std::fclose(ofp);
+    // Like sketches of sequence files, BED sketches are written to disk only with --cache.
+    if(opts.cache_sketches_) {
+        std::FILE *ofp = bfopen(cache_path.data(), "wb");
+        if(ofp == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to open file ") + cache_path + " for writing sketch."));
+        std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);
+        std::fwrite(retvec.data(), opts.sketchsize_, sizeof(RegT), ofp);
+        std::fclose(ofp);
+    }
     return ret;
 }
 
