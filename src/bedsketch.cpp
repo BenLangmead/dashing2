@@ -17,7 +17,8 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     DBG_ONLY(std::fprintf(stderr, "Using %s\n", op ? "oneperm": "fullsetsketch");)
 
     if(opts.trim_folder_paths()) {
-        cache_path = trim_folder(path);
+        // The cache file keeps the sketch suffix, so it is never named like an input BED file.
+        cache_path = trim_folder(path) + to_suffix(opts);
         if(opts.outprefix_.size())
             cache_path = opts.outprefix_ + '/' + cache_path;
     }
