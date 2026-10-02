@@ -16,7 +16,9 @@ static inline std::string to_string(const T *ptr) {
     return oss.str();
 }
 
-static bool seqs_in_memory = false;
+// Set by --seqs-in-ram (options.h stores an int through this address). A single
+// definition is shared by all translation units, so the option reaches the sketchers.
+inline int seqs_in_memory = 0;
 
 struct Dashing2DistOptions;
 
