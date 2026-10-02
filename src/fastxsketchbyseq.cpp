@@ -340,9 +340,12 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
             ret.cardinalities_[i] = seql;
         } else if(seqmins) { // Sequence of minimizers
             auto &myseq(seqmins[i - lastindex]);
+            bool any_minimizer = false;
             sketchers.for_each([&](auto x) {
+                any_minimizer = true;
                 x = maskfn(x);
                 if(opts.fs_ && opts.fs_->in_set(x)) return;
+                if(!opts.downsample_pass(x)) return;
                 if(!opts.homopolymer_compress_minimizers_ || myseq.empty() ||
                     (sizeof(x) == 8 ? myseq.back() != x: std::memcmp(&myseq[myseq.size() - 2], &x, 16) != 0))
                 {
@@ -357,7 +360,7 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
             // This handles the case where the sequence is shorter than the window size
             // and the entire sequence yields no minimizer.
             // We instead take the minimum-hashed value from the b-tree
-            if(opts.w_ > opts.k_ && myseq.empty() && seql) {
+            if(opts.w_ > opts.k_ && !any_minimizer && seql) {
                 //std::fprintf(stderr, "Adding in single item for small seq]\n");
                 if(sketchers.rh128_.n_in_queue()) {
                     u128_t v = sketchers.rh128_.max_in_queue().el_;
@@ -385,7 +388,7 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
             const bool isop = sketchers.opss.get(), isctr = sketchers.ctr.get(), isfs = sketchers.fss.get(), iscfss = sketchers.cfss.get();
             auto fsfunc = [&](auto x) __attribute__((always_inline)) {
                 x = maskfn(x);
-                if(opts.fs_->in_set(x)) return;
+                if(opts.fs_->in_set(x) || !opts.downsample_pass(x)) return;
                 if(isop)    sketchers.opss->update(fold64(x));
                 else if(isctr) sketchers.ctr->add(x);
                 else if(isfs) sketchers.fss->update(fold64(x));
@@ -393,6 +396,7 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
             };
             auto nofsfunc = [&](auto x) __attribute__((always_inline)) {
                 x = maskfn(x);
+                if(!opts.downsample_pass(x)) return;
                 if(isop) sketchers.opss->update(fold64(x));
                 else if(isctr) sketchers.ctr->add(x);
                 else if(isfs) sketchers.fss->update(fold64(x));
@@ -438,11 +442,14 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
                         if(opts.fs_) {
                             sketchers.for_each([&](auto x) {
                                 x = maskfn(x);
-                                if(opts.fs_->in_set(x)) return;
+                                if(opts.fs_->in_set(x) || !opts.downsample_pass(x)) return;
                                 ids.insert(fold64(x));
                             }, seqp, seql);
                         } else {
-                            sketchers.for_each([&](auto x) {ids.insert(fold64(maskfn(x)));}, seqp, seql);
+                            sketchers.for_each([&](auto x) {
+                                x = maskfn(x);
+                                if(opts.downsample_pass(x)) ids.insert(fold64(x));
+                            }, seqp, seql);
                         }
                         ret.cardinalities_[i] = ids.size();
                         DBG_ONLY(std::fprintf(stderr, "Cardinality exact counting fall-back complete\n"););
