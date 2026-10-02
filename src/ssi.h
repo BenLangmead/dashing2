@@ -393,12 +393,14 @@ public:
     }
     template<typename Sketch>
     std::tuple<std::vector<IdT>, std::vector<uint32_t>, std::vector<uint32_t>>
-    query_candidates(const Sketch &item, size_t maxcand, size_t starting_idx = size_t(-1), bool early_stop=true) const {
+    query_candidates(const Sketch &item, size_t maxcand, size_t starting_idx = size_t(-1), bool early_stop=true, IdT self_id = IdT(-1)) const {
         if(starting_idx == size_t(-1) || starting_idx > regs_per_reg_.size()) starting_idx = regs_per_reg_.size();
         /*
          *  Returns ids matching input minhash sketches, in order from most specific/least sensitive
          *  to least specific/most sensitive
          *  Can be then used, along with sketches, to select nearest neighbors
+         *  When the queried sketch is itself in the index, self_id is its id; it is skipped
+         *  so that it does not take one of the maxcand slots.
          *  */
         flat_hash_map<IdT, uint32_t> rset;
         std::vector<IdT> passing_ids;
@@ -409,6 +411,7 @@ public:
             for(size_t j = 0; j < item.size() && rset.size() < maxcand; ++j) {
                 if(auto it = m.find(item[j]); it != m.end()) {
                     for(const auto id: it->second) {
+                        if(id == self_id) continue;
                         auto rit2 = rset.find(id);
                         if(rit2 == rset.end()) {
                             rset.emplace(id, 1);
@@ -431,6 +434,7 @@ public:
                     auto it = m[j].find(myhash);
                     if(it != m[j].end()) {
                         for(const auto id: it->second) {
+                            if(id == self_id) continue;
                             //auto rit2 = rset.find(id);
                             if(auto rit2 = rset.find(id); rit2 == rset.end()) {
                                 rset.emplace(id, 1);

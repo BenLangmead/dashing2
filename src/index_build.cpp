@@ -56,6 +56,7 @@ std::vector<pqueue> build_index(SetSketchIndex<LSHIDType, LSHIDType> &idx, const
     const int topk = opts.min_similarity_ > 0. ? -1: opts.num_neighbors_ > 0 ? 1: 0;
     static constexpr const LSHDistType INFLATE_FACTOR = 3.5;
     // Make the similarities negative so that the smallest items are the ones with the highest similarities
+    // The query's own id is skipped by query_candidates, so ntoquery counts other inputs only.
     size_t ntoquery = opts.num_neighbors_ <= 0 ? (maxcand_global <= 0 ? ns - 1: size_t(maxcand_global))
                                                : std::min(ns - 1, size_t(opts.num_neighbors_ * INFLATE_FACTOR));
     if(verbosity >= DEBUG) {
@@ -115,13 +116,13 @@ std::vector<pqueue> build_index(SetSketchIndex<LSHIDType, LSHIDType> &idx, const
 #define CASE_N(i, TYPE) \
         case i: {query_res = idx.query_candidates(\
             minispan<TYPE>((TYPE *)opts.compressed_ptr_ + opts.sketchsize_ * id, opts.sketchsize_),\
-            ntoquery);\
+            ntoquery, size_t(-1), true, LSHIDType(id));\
         } break
                ALL_CASE_NS
 #undef CASE_N
             }
         } else {
-            query_res = idx.query_candidates(minispan<RegT>(&result.signatures_[opts.sketchsize_ * id], opts.sketchsize_), ntoquery);
+            query_res = idx.query_candidates(minispan<RegT>(&result.signatures_[opts.sketchsize_ * id], opts.sketchsize_), ntoquery, size_t(-1), true, LSHIDType(id));
         }
         auto &[ids, counts, npr] = query_res;
         const size_t idn = ids.size();
