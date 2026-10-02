@@ -269,7 +269,7 @@ int contain_main(int argc, char **argv) {
                 float stat_arr[sizeof(matd) / sizeof(float)];
                 std::memcpy(mat_arr, &matd, sizeof(matd));
                 std::memcpy(stat_arr, &statd, sizeof(statd));
-                fmt::print("\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
+                fmt::print(ofp, "\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
                            mat_arr[0], mat_arr[1], mat_arr[2], mat_arr[3], mat_arr[4], mat_arr[5], mat_arr[6], mat_arr[7], mat_arr[8], mat_arr[9], mat_arr[10], mat_arr[11], mat_arr[12], mat_arr[13], mat_arr[14], mat_arr[15], stat_arr[0], stat_arr[1], stat_arr[2], stat_arr[3], stat_arr[4], stat_arr[5], stat_arr[6], stat_arr[7], stat_arr[8], stat_arr[9], stat_arr[10], stat_arr[11], stat_arr[12], stat_arr[13], stat_arr[14], stat_arr[15]
                 );
             }
@@ -283,7 +283,7 @@ int contain_main(int argc, char **argv) {
                 float stat_arr[sizeof(matd) / sizeof(float)];
                 std::memcpy(mat_arr, &matd, sizeof(matd));
                 std::memcpy(stat_arr, &statd, sizeof(statd));
-                fmt::print("\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
+                fmt::print(ofp, "\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
                         mat_arr[0], mat_arr[1], mat_arr[2], mat_arr[3], mat_arr[4], mat_arr[5], mat_arr[6], mat_arr[7], stat_arr[0], stat_arr[1], stat_arr[2], stat_arr[3], stat_arr[4], stat_arr[5], stat_arr[6], stat_arr[7]
                 );
             }
