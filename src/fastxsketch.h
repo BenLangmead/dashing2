@@ -18,6 +18,36 @@ static inline std::string to_string(const T *ptr) {
 
 static bool seqs_in_memory = false;
 
+// Counts distinct sketch ids exactly while there are at most `limit` of them.
+// Set sketches of such small sets report this count as their cardinality
+// instead of the sketch estimate, in file mode and with --parse-by-seq alike.
+// A limit of 0 disables counting.
+class SmallSetCounter {
+    flat_hash_set<uint64_t> ids_;
+    size_t limit_;
+    uint64_t last_ = 0;
+    bool over_;
+public:
+    explicit SmallSetCounter(size_t limit): limit_(limit), over_(limit == 0) {}
+    INLINE void add(uint64_t id) {
+        // Windowed streams repeat a minimizer over consecutive windows.
+        if(over_ || (id == last_ && !ids_.empty())) return;
+        last_ = id;
+        ids_.insert(id);
+        if(ids_.size() > limit_) {
+            over_ = true;
+            ids_ = flat_hash_set<uint64_t>();
+        }
+    }
+    // The exact count when the set is small enough, the estimate otherwise.
+    double cardinality(double estimate) const {return over_ ? estimate: static_cast<double>(ids_.size());}
+};
+static inline size_t small_set_limit(const Dashing2Options &opts) {
+    // With a count threshold the sketch holds only the frequent k-mers, which
+    // a plain distinct count does not reflect, so the estimate is kept.
+    return opts.count_threshold_ <= 1 ? 10 * opts.sketchsize_: 0;
+}
+
 struct Dashing2DistOptions;
 
 struct SketchingResult {
