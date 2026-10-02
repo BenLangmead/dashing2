@@ -362,3 +362,203 @@ Measured on the fixed build with `-j 4` on a 12-core Apple Silicon laptop
 KMC's own run time (about 0.85 s per `kmc` call regardless of input size,
 mostly idle in its second stage) dominates suites A and B; the wrappers run
 the counts of one trial side by side.
+
+## Suite E: workflow and output modes
+
+`suite_e_workflows.py` (helpers in `d2rand_e.py`) checks the parts of
+dashing2 around the comparison core: nearest-neighbour and clustering
+outputs, every output layout, sketch and k-mer files and their round trips,
+`contain`, `wsketch`, `printmin` and BED input. It uses the shared options
+(`--preset quick|thorough`, `--seed`, `--trial`, `-j`, `--keep`, `--strict`,
+`-v`) and adds `--family NAME` (repeatable) to run only the trials of some
+families. It does not need KMC.
+
+```sh
+DASHING2=/path/to/dashing2 python3 test/random/suite_e_workflows.py               # quick, 150 trials
+DASHING2=/path/to/dashing2 python3 test/random/suite_e_workflows.py --family nn --preset thorough -j 8
+```
+
+Trial i belongs to family `FAMILIES[i % 10]`. Inputs are clustered random
+genomes (`d2rand_e.clustered_inputs`): a few random roots, members with SNP
+rates from 0 to 15% and small indels, some members sliced (so containment is
+asymmetric), some with repeats, some exact copies of earlier members (ties),
+plus the record features of the other suites (several records, short
+records, N runs, lowercase, FASTQ, gzip).
+
+### Exact identifiers
+
+dashing2 stores a DNA k-mer as maskfn(kmer) = WangHash(kmer ^ XORMASK), with
+2 bits per base (A=0, C=1, G=2, T=3), the numerically smaller of the k-mer
+and its reverse complement when canonical, and XORMASK = 0 for `--seed 0`
+and WangHash(seed) otherwise; with `-2` each 64-bit half is hashed and the
+pair is folded to 64 bits for sketches (`fold64`) or stored unfolded in
+`.kmerset128`. `d2rand_e.kmer_id` reproduces this (verified against `--set`,
+`-J`, `--save-kmers`, with seeds and `-2`), which turns every saved k-mer file
+into an exact oracle for k <= 32 (k <= 64 with `-2`).
+
+### Families and checks
+
+* `nn`: `--topk K` and `--similarity-threshold T` against the `--square`
+  matrix of the same mode and measure (OPH, `--full`, `-B`, `--prob`, `--set`,
+  `-J`, `--fastcmp 1|2`, `--bbit-sigs --fastcmp 2`, `--fastcmp-shorts`;
+  similarity, Mash distance, containment, symmetric containment,
+  intersection). Every listed value must equal the matrix entry (binary CSR
+  exactly, text to 8 digits), no self or duplicate entries, best first, ties at
+  the K-th value only, binary equal to text, `-p N` equal to `-p 1`. Thresholds
+  are chosen strictly between two observed values, so a listed pair must
+  qualify. Misses are classified: when every input is a candidate
+  (n - 1 <= 3.5 K for top-k; always for thresholds with up to 21 inputs) and
+  the LSH keys are the compared registers (OPH, `--full`, `-B`, `--prob`,
+  `--fastcmp-shorts`), any missed positive pair fails; in the other modes a
+  missed pair fails only if its similarity is at least 0.25. All other misses
+  (candidates capped at 3.5 K, bottom-k keys of exact modes, full-register keys
+  of `--fastcmp`/`--bbit-sigs`) enter recall statistics printed at the end.
+  A third of the trials use many identical inputs, which fills candidate lists
+  with ties.
+* `greedy`: `--greedy T` and `--greedy TE`. The clusters must partition the
+  inputs, every member must be within T of its representative (similarity
+  >= T, distance <= T), binary output must equal text and `-p N` must equal
+  `-p 1`. `TE` is simulated exactly from the matrix (inputs in input order
+  join the best existing cluster, ties to the lowest cluster index, float32
+  scores). For the LSH variant, pairs of representatives within T of each
+  other are counted (approximation, reported).
+* `formats`: the default upper triangle, `--square`, `-Q` panel and
+  `--phylip`, each as text, `--binary-output` on stdout, and `--cmpout` text
+  and binary files: identical values (binary decoded per python/parse.py),
+  correct labels and sizes, `--cmpout` files equal to stdout, panel equal to
+  the square's submatrix, `sketch --cmpout` equal to `cmp`. A third of the
+  trials compare 128 to 512 tiny inputs with `-p`/`--batch-size` chosen so
+  that a queued block holds exactly 32768 floats.
+* `roundtrip`: `sketch -o` stacked files (header, cardinalities equal to
+  `.names.txt`, `cmp -o` equal to `sketch -o` except OPH, which `cmp`
+  densifies in place), `cmp --presketched` on the stacked file and on per-input
+  `--cache` files equal to the direct comparison (k is passed again: sketch
+  files do not record it), a second `--cache` run reads the files without
+  rewriting them, and `--outprefix` keeps every file in its directory.
+* `kmers`: `--set`/`-J` files (sorted ids equal to the exact k-mer set,
+  cardinality header, counts aligned with ids), with `-m`, `--no-canon`,
+  `--seed` and `-2`; `sketch -N -o` k-mer databases (`.kmer64` header fields,
+  names file, every sampled id a k-mer of its input, saved counts equal to the
+  exact counts).
+* `contain`: coverage and depth for OPH, `--full`, `-B` and `--prob`
+  databases, canonical and `--no-canon`, seeds, `-2`, against a recomputation
+  from the decoded database and exact query counts (binary output exactly;
+  text, `-b -o` and `-p N`). With `-w`, minimizer streams come from `sketch -G`
+  with the same options (itself checked exactly by `seq`). A quarter of the
+  trials add a reference without k-mers.
+* `wsketch`: CSR input with `-B`, `-q` and the default ProbMinHash: header,
+  total weights, `info.txt`, every sampled id an id of its row, equal-register
+  fractions against the exact weighted, probability or set Jaccard (|z| <= 6),
+  `cmp --presketched` on the stacked registers, `-u`/`-f`/`-H`/`-P` inputs
+  byte-identical to 64-bit inputs, and 1-D input equal to the same CSR row.
+* `seq`: `sketch -G --parse-by-seq -o` (raw k-mer codes per record, with and
+  without `--hp-compress`), `printmin` text and `-f` output, and the per-input
+  `.mmerseq64` file of file mode (masked ids), all exactly.
+* `bed`: BED files with comments, extra columns and overlapping or repeated
+  intervals: similarity against the exact Jaccard of covered positions (or
+  weighted Jaccard with multiplicities for `-B`), labels, `sketch --bed -o`
+  stacked file, cardinalities and its `--presketched` reload.
+* `measures`: for every measure, `--square` (with extra query-only inputs),
+  `-Q` panels (including `--mash-distance -Q`), the default symmetric output,
+  symmetry of the symmetric measures, Mash distance as a function of
+  similarity, containment x |row| = intersection and symmetric containment x
+  min(|A|, |B|) = intersection. `--fastcmp` fits its compression to all
+  inputs of a run, so runs over different input sets are not compared there.
+
+### Known issues (expected failures)
+
+Run with `--strict` to count these as failures.
+
+* `symcontain-as-distance` (high for its users): `--symmetric-containment`
+  is ranked as a distance by `--topk`, `--similarity-threshold` and
+  `--greedy`, because `distance()` (src/cmp_main.h:44) returns true for every
+  measure other than similarity, containment, intersection and union. Top-k
+  lists the least contained neighbours first, the threshold keeps pairs below
+  T, and greedy joins unrelated inputs (symmetric containment 0) into one
+  cluster. Repro on four genomes in two clusters:
+  `dashing2 cmp -k 17 --full --symmetric-containment --similarity-threshold 0.5 ...`
+  lists c0_1 with c0_3 (0.483) but not c0_0 (0.890); `--greedy 0.5E` puts
+  all 8 unrelated genomes in c0_0's cluster.
+* `lsh-self-candidate` (medium): `--topk` and `--similarity-threshold`
+  request n - 1 (or 3.5 K) candidates per input, but the input's own id
+  counts toward that cap (`query_candidates`, src/ssi.h:431 and :453; caller
+  src/index_build.cpp:61), so one real candidate is lost per truncated query;
+  a pair disappears when both of its queries drop each other, and which pair
+  is dropped depends on `-p`. Repro: six inputs where four are identical
+  (g00, g01, g02, g04) and g03, g05 differ, `--full -k 20 -S 512`: the square
+  matrix gives g03 vs g04 = 0.371, but `--similarity-threshold 0.3 -p 1` and
+  `--topk 5 -p 1` omit that pair from both rows (every other pair is listed);
+  with `-p 2` a different pair is dropped.
+* `binary-tail-32k` (medium): binary matrix output loses a whole block when a
+  queued block holds a multiple of 32768 floats and is still queued when the
+  computation ends: the final write loop writes `(nwritten & 32767)` floats
+  for the last 128 KiB chunk, which is 0 (src/emitrect.cpp:395). Repro: 256
+  inputs, `cmp --square --binary-output -p 128 --batch-size 128` writes
+  131072 of 262144 bytes (exit 0); `-p 64` is complete. Realistic triggers:
+  2048 genomes with `-p 16`, or 4096 with `-p 8`. The text path has the same
+  pattern at src/emitrect.cpp:369 for formatted buffers that are an exact
+  multiple of 128 KiB (not reproduced; it needs that exact size).
+* `stacked-kmercounts-f32` (low): `sketch -N -o out` writes
+  `out.kmercounts.f64` as float32 (`kmercounts_` is `std::vector<float>`,
+  src/fastxsketch.h:45; written at src/sketch_core.cpp:200), while the
+  per-input `.kmercounts.f64` files hold float64; a reader trusting the name
+  gets garbage (the values are correct as float32).
+* `full-mincount-counts` (low): `--full -N -m M` with M > 1 saves count 1 for
+  every sampled k-mer (OPH, `-B` and `--prob` save the true counts):
+  `CountFilteredCSetSketch::update` (bonsai hll/include/sketch/setsketch.h:1080
+  and :1097) sets the count to 1 when an item reaches M and returns early for
+  later occurrences.
+* `bmh-stale-ids` (low): with `-B --save-kmers`, an input without k-mers
+  (all records shorter than k, or nothing reaching `-m`) gets the sampled ids
+  and counts of the previous input sketched by the same thread, because
+  `bmh_t::reset()` (bonsai hll/include/sketch/bmh.h:404) does not clear
+  `track_ids_`. `contain` then reports coverage for it: a database of a 3 kbp
+  genome a and a 6 bp record b, queried with a, prints `100%:1` for b.
+* `seq-o-file-mode` (low): `sketch -G -o out` without `--parse-by-seq`
+  (where `-o` is required) writes the minimizer-sequence header over a file
+  sized for sketch registers (src/fastxsketch.cpp:271, src/sketch_core.cpp:145):
+  the body is zeros and `printmin` rejects it (8216 bytes, header implies
+  372). The per-input `.mmerseq64` files are correct. Also in v2.1.20.
+* `wsketch-tw-suffix` (cosmetic): 1-D `wsketch` ends `out.sampled.tw.txt`
+  with a garbage character, because `';' + 'd' + ';' + 'L'` is integer
+  arithmetic appended as one char (src/wsketch.cpp:365).
+
+### Observations not treated as failures
+
+* `--fastcmp N` fits its log-compression parameters to the registers of all
+  inputs in a run, so the value for one pair changes with the other inputs.
+* Sketch files do not record k, so `cmp --presketched --mash-distance` uses
+  the default k unless `-k` is given again (part of the known issue that sketch
+  files carry no parameters).
+* `cmp -o` densifies one-permutation sketches in the stacked file, so it is
+  not byte-identical to `sketch -o` (both reload to the same values).
+* With fewer candidates than inputs (n - 1 > 3.5 K) top-k keeps the first
+  candidates the index meets rather than the best (known caveat of the exact
+  LSH change); recall of true top-K neighbours was about 0.65 to 0.75 in that
+  regime in thorough runs, and 0.95 when every input is a candidate (which
+  includes exact and compressed modes, whose low-similarity pairs may share
+  no LSH key).
+* `--phylip` prints the upper triangle with 9-character padded names, and
+  `inf` for unrelated pairs.
+* python/parse.py: `parse_binary_clustering` reads `fpath` (undefined) and an
+  indptr of nclusters rather than nclusters + 1 entries; `parse_binary_kmers`
+  indexes the function `alphabetcvt` with brackets. The suite decodes the
+  layouts in its own code.
+
+### Not covered
+
+BigWig input (no BigWig writer in the Python standard library); LeafCutter
+input; protein alphabets in these workflows; windowed minimizers are not
+simulated (the `-G` stream is the reference for `contain -w`); exact oracles
+for saved k-mers stop at k = 32 (64 with `-2`), beyond which dashing2 stores
+rolling hashes.
+
+### Runtime
+
+Quick preset: 150 trials, 3 to 12 s with `-j 4`; thorough: 800 trials, about
+45 s with `-j 8` (Apple Silicon, 12 cores). On stock v2.1.20 the quick preset
+(seed 1) fails in 87 of 150 trials: wsketch row offsets hashed instead of ids,
+`contain` with OPH and `-2` databases, BED labels and `sketch --bed -o`,
+`--set`/`-J`/`--prob` crashes with `-m` or `-s`, `--presketched` labels,
+containment direction, `--fastcmp-shorts` crashes, inverted `--greedy` for
+distances and duplicate top-k entries under `-p`.
