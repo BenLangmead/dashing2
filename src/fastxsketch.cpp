@@ -57,13 +57,16 @@ int32_t num_threads() {
     return nt;
 }
 
+// Reads a cached file into ptr. Sketch files start with the cardinality, which is stored in *cardinality;
+// k-mer and k-mer count files have no such header, and are read with a null cardinality.
 template<typename T, size_t chunk_size = 65536>
 size_t load_copy(const std::string &path, T *ptr, double *cardinality, const size_t ss) {
     T *const origptr = ptr;
+    const size_t header = cardinality ? sizeof(*cardinality): 0;
     if(path.size() > 3 && std::equal(path.data() + path.size() - 3, &path[path.size()], ".gz")) {
         gzFile fp = gzopen(path.data(), "rb");
         if(!fp) return 0; //THROW_EXCEPTION(std::runtime_error(std::string("Failed to open file at ") + path));
-        gzread(fp, cardinality, sizeof(*cardinality));
+        if(cardinality) gzread(fp, cardinality, sizeof(*cardinality));
         for(int nr;
             !gzeof(fp) && (nr = gzread(fp, ptr, sizeof(T) * chunk_size)) == sizeof(T) * chunk_size;
             ptr += nr / sizeof(T));
@@ -73,14 +76,14 @@ size_t load_copy(const std::string &path, T *ptr, double *cardinality, const siz
         auto cmd = std::string("xz -dc ") + path;
         std::FILE *fp = ::popen(cmd.data(), "r");
         if(fp == 0) return 0;
-        std::fread(cardinality, sizeof(*cardinality), 1, fp);
+        if(cardinality) std::fread(cardinality, sizeof(*cardinality), 1, fp);
         for(auto up = (uint8_t *)ptr;!std::feof(fp) && std::fread(up, sizeof(T), chunk_size, fp) == chunk_size; up += chunk_size * sizeof(T));
         ::pclose(fp);
         return ptr - origptr;
     }
     std::FILE *fp = bfopen(path.data(), "rb");
     if(!fp) THROW_EXCEPTION(std::runtime_error(std::string("Failed to open ") + path));
-    std::fread(cardinality, sizeof(*cardinality), 1, fp);
+    if(cardinality) std::fread(cardinality, sizeof(*cardinality), 1, fp);
     const int fd = ::fileno(fp);
     size_t sz = 0;
     if(!::isatty(fd)) {
@@ -90,7 +93,7 @@ size_t load_copy(const std::string &path, T *ptr, double *cardinality, const siz
             std::fprintf(stderr, "Warning: Empty file found at %s\n", path.data());
             return 0;
         }
-        size_t expected_bytes = st.st_size - 8;
+        size_t expected_bytes = st.st_size - header;
         const size_t expected_sketch_nb = ss * sizeof(T);
         if(expected_bytes != expected_sketch_nb) {
             std::fprintf(stderr, "Expected %zu bytes of sketch, found %zu\n", expected_sketch_nb, expected_bytes);
@@ -361,9 +364,9 @@ FastxSketchingResult &fastx2sketch(FastxSketchingResult &ret, Dashing2Options &o
                     DBG_ONLY(std::fprintf(stderr, "Sketch was loaded from %s and has card %g\n", destination.data(), ret.cardinalities_[myind]);)
                 }
                 if(ret.kmers_.size())
-                    load_copy(destkmer, &ret.kmers_[mss], &ret.cardinalities_[myind], ss);
+                    load_copy(destkmer, &ret.kmers_[mss], static_cast<double *>(nullptr), ss);
                 if(ret.kmercounts_.size())
-                    load_copy(destkmercounts, &ret.kmercounts_[mss], &ret.cardinalities_[myind], ss);
+                    load_copy(destkmercounts, &ret.kmercounts_[mss], static_cast<double *>(nullptr), ss);
             } else if(opts.kmer_result_ <= FULL_MMER_SEQUENCE) {
                 DBG_ONLY(std::fprintf(stderr, "Cached at path %s, %s, %s\n", destination.data(), destkmercounts.data(), destkmer.data());)
             }
