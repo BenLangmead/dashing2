@@ -362,3 +362,52 @@ Measured on the fixed build with `-j 4` on a 12-core Apple Silicon laptop
 KMC's own run time (about 0.85 s per `kmc` call regardless of input size,
 mostly idle in its second stage) dominates suites A and B; the wrappers run
 the counts of one trial side by side.
+
+## Suite F: documentation audit
+
+`suite_f_docs.py` (helpers in `d2rand_f.py`) checks that dashing2 does what
+its usage messages (`dashing2`, `dashing2 <subcommand> -h/--help`) and
+README.md say. Each trial runs one of 23 checks round robin on freshly drawn
+inputs and parameters; quick runs every check twice (46 trials, about 2 s
+with `-j 6`), thorough eight times (184 trials, about 8 s). `--check NAME`
+(repeatable) runs only the named checks. KMC is not used.
+
+| check | what it verifies |
+|---|---|
+| help | every subcommand prints its usage for `-h` and `--help`; `dist` is `cmp`; each documented short option (`-k -w -2 -m -F -Q -S -L -s -N -o -B -H -J -G -p`) is accepted by `sketch` and `cmp`; every long option named in the help exists in the parser (`src/options.h`, when present); options the parser accepts but the help never names |
+| defaults | k 32 (64 with `-2`), S 1024, one-permutation sketch, canonical, symmetric output, equal to the explicit flags; the help's per-alphabet k limits; the default output format |
+| sketch_types | aliases `--full/--full-setsketch`, `-B/--multiset/--bagminhash`, `-P/--prob/--pminhash`, `--set/-H`, `-J/--countdict` give identical values and the right header label; `--set` and `-J` are exact |
+| measures | every documented measure and alias (`--intersection(-size)`, `--union-size`, `--containment` as I/|row|, `--symmetric-containment`, `--mash-distance/--distance/--poisson-distance`) against the exact oracle |
+| layouts | `--square/--asymmetric-all-pairs/--asymmetric`; `-F X -Q X` equals `--square`; `-Q` gives |F| x |Q|; `-F` adds to positional arguments; a `-F` line with several files is one sketch |
+| sparse | `--topk/--top-k` lists the true top neighbours with the matrix values, sorted; `--topk` above N-1; `--similarity-threshold` lists exactly the entries above the threshold (inputs are families of related genomes so that LSH recall is not at issue) |
+| greedy | `--greedy t` and `tE` recover well-separated families; `F` needs `--parse-by-seq` and then prints input records |
+| binary | `--binary-output/--emit-binary/--binary` layouts for symmetric, square and panel output equal the text values; `--cmpout/--distout/--cmp-outfile`, `--cmpout -`; documented top-k and greedy binary layouts |
+| stacked | `sketch -o` file layout and names file; `cmp --presketched` equals the direct run (OPH, `--full`, `-B`, `--prob`), including Mash distances |
+| save_kmers | `-s/-N` output files, their names and header size |
+| contain | self-coverage 100%, `-o`, `-b` layout, `-F`, `-p`, stdin default |
+| seq | `--seq --parse-by-seq -o` plus `printmin` (tabular, `-f`, `-o`) equals the k-mer sequence oracle; `--hp-compress`; documented header |
+| filterset, window_downsample, spacing, protein | exact oracles for `--filterset`, `-w` (default k, minimizer density), `--downsample` (binomial), `--spacing` (gap and run-length forms; disables canonicalization), `--protein/--protein20/--enable-protein` |
+| countmin, cache, sizes, seqs_in_ram | `-c/--countmin-size` scope and header; `--cache/--cache-sketches` with `--outprefix/--prefix`; `-S`, `-L` bounds, `--fastcmp/--regsize/--regbytes`, `--fastcmp-bytes/-shorts/-words` equal their `--setsketch-ab` values; `--seqs-in-ram` |
+| readme, edit_distance | README Uses 1, 2, 3, 4, 6 and 7 and the README's canonicalization claim |
+| wsketch | total weights for every weight type (`-f`, `-H`, `-U`), CSR row sums (`-P`, `-` for uniform weights), `-u` ids, `tw.txt` format, the help's examples |
+
+Documentation bugs are registered in `d2rand_f.DOC_BUGS` and reported as
+expected failures (XFAIL ids below; `--strict` turns them into failures).
+Each failing check prints the dashing2 command that shows it.
+
+* `help-k-limits`: help says the direct k limit is 31 for DNA and 22 for `--protein8`; it is 32 and 21 (and `--protein14`, 16, is not listed).
+* `default-not-phylip`: help says the default is "Upper Triangular PHYLIP"; the default is the tab-separated symmetric matrix, PHYLIP needs the undocumented `--phylip`.
+* `header-sketchtype-label`: `cmp --multiset/--bagminhash/--prob/--pminhash` print `sketchtype:onepermsetsketch` in the header (values are right; `-B`/`-P` print the right label); `-J` prints `fullyunknown`.
+* `topk-large-k`: `--topk` above N-1 prints neighbour lists, not the pairwise matrix the help promises.
+* `sparse-binary-format`, `greedy-binary-ids`: binary top-k/threshold output is CSR with a 16-byte header, not the documented matrix; greedy member ids are 32-bit, not 64-bit.
+* `presketched-mash-k`: `cmp --presketched --mash-distance` uses the default k (32) unless `-k` is repeated, because stacked files do not store k.
+* `save-kmers-names-path`, `save-kmers-header-size`, `save-kmers-no-file`: `-s -o X` writes names to `X.kmer64.names.txt` (help: `X.kmer.names.txt`) with a 24-byte header (help: 16); without `-o`, `-s/-N` write nothing for the default sketch and `--full`.
+* `seq-header`: `--seq` files have a 20-byte header (an extra alphabet word), not the documented 16.
+* `countmin-exact-modes`, `countsketch-header-newline`: `--countmin-size` also turns `--set`/`-J` into count-sketch bucket comparisons (help: only BagMinHash/ProbMinHash); it also puts a newline into the `#Dashing2Options` header.
+* `fastcmp-presets-need-full`: `--fastcmp-bytes/-shorts/-words` and `--setsketch-ab` abort unless `--full` is given.
+* `seqs-in-ram-ignored`: `--seqs-in-ram` has no effect (`static bool` in a header).
+* `readme-use7-no-output`, `readme-edit-distance-crash`, `edit-distance-nondeterministic`, `readme-canon-default`: README Use 7 writes binary sketches to its `.tsv` and no table; Use 6 segfaults; `--edit-distance` results change between runs; README says canonicalization is off by default (it is on).
+* `wsketch-U-1d`, `wsketch-tw-garbage`, `wsketch-example-order`, `wsketch-example-kmerset-header`: `-U` weights read as float64 with one or two paths; `tw.txt` ends in a garbage character; help examples put the weights before the ids (the `-` example aborts); `.kmerset64` files used in the examples carry an 8-byte header that is read as an id.
+* `short-opts-differ`, `undocumented-options`: `-C` works in `sketch` but not `cmp`; 26 long options accepted by the parser are never named in the help.
+
+On stock v2.1.20 the suite additionally fails exact `--union-size` (55 vs 2270), `--protein --set` (cardinality 0), `cmp --presketched` (aborts), `--full --fastcmp-bytes` (aborts) and `--filterset` with `-2` (no effect), all fixed in the tested build.
