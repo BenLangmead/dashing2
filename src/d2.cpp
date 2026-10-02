@@ -76,21 +76,27 @@ void Dashing2Options::filterset(const std::string &path, bool is_kmer) {
         else
             ::pclose(ifp);
     } else {
+        // The filter holds every k-mer of the file, not only its minimizers, so
+        // the encoders below are unwindowed copies of the sketching encoders.
+        bns::Encoder<> enc(bns::Spacer(k_, k_, spacing_.data()), enc_.canonicalize());
+        enc.hashtype(enc_.hashtype());
+        bns::RollingHasher<uint64_t> rh(k_, rh_.canonicalize(), rh_.hashtype());
+        bns::RollingHasher<u128_t> rh128(k_, rh128_.canonicalize(), rh128_.hashtype());
         for_each_substr([&](const std::string &subpath) {
             //std::fprintf(stderr, "Doing for_each_substr for subpath = %s\n", subpath.data());
             const auto sp = subpath.data();
             auto lfunc = [&](auto x) {fs_->add(maskfn(x));};
             if(use128()) {
                 if(unsigned(k_) <= enc_.nremperres128()) {
-                    auto encoder(enc_.to_u128());
+                    auto encoder(enc.to_u128());
                     encoder.for_each(lfunc, sp);
                 } else {
-                    rh128_.for_each_hash(lfunc, sp);
+                    rh128.for_each_hash(lfunc, sp);
                 }
             } else if(unsigned(k_) <= enc_.nremperres64()) {
-                enc_.for_each(lfunc, sp);
+                enc.for_each(lfunc, sp);
             } else {
-                rh_.for_each_hash(lfunc, sp);
+                rh.for_each_hash(lfunc, sp);
             }
         }, path);
     }
