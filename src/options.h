@@ -562,7 +562,7 @@ static constexpr const char *siglen =
         " 5. K-mer Sets.\n"\
         "   This generates a sorted hash set for k-mers in the data. If the parser is windowed (-w is fairly large), this could even be rather small.\n"\
         "   -H/--set to enable\n"\
-        "   If an LSH table is generated, then weighted bottom-k hashes are used to build an LSH table\n"\
+        "   If an LSH table is generated, then bottom-k hashes (the smallest k-mer hashes) are used to build an LSH table\n"\
         " 6. Full k-mer countdict. \n"\
         "    This generates a sorted hash set for k-mers in the data, and additionally saves the associated counts for these k-mers.\n"\
         "    If an LSH table is generated, then weighted bottom-k hashes as in Cohen, E. \"Summarizing Data using Bottom-K Sketches\"\n"\
@@ -614,7 +614,7 @@ static constexpr const char *siglen =
         "All of these are powered by the use of an LSH table built over the sketches, with the exception of exact mode (--countdict or --set), which use an LSH index built over their bottom-k hashes.\n"\
         "For details on LSH table parameters, see `LSH Options` below.\n"\
         "Top-K (K-Nearest-Neighbor) mode -- \n"\
-        "--topk/--top-k <arg>\tMaximum number of nearest neighbors to list. If <arg> is N - 1 or greater, every other item is listed for each item.\n"\
+        "--topk/--top-k <arg>\tMaximum number of nearest neighbors to list. If <arg> is N - 1 or greater, every other item is listed for each item, except items that share no sampled k-mers (no LSH key) with it, which are never candidates.\n"\
         "\nThresholded Mode -- \n"\
         "--similarity-threshold <arg>\tMinimum fraction similarity for inclusion.\n\tIf this is enabled, only pairwise similarities over <arg> will be emitted.\n"\
         "\tFor distance measures (e.g., --mash-distance), <arg> is a maximum distance instead: only pairs at most <arg> apart are emitted.\n"\
