@@ -256,7 +256,9 @@ int cmp_main(int argc, char **argv) {
         std::fprintf(stderr, "output format should be %s before parsing options \n", to_string(of).data());
     }
     for(;(c = getopt_long(argc, argv, "m:p:k:w:c:f:S:F:Q:o:L:CvNs2BPWh?ZJGH", cmp_long_options, &option_index)) >= 0;) {switch(c) {
-        case OPTARG_HELP: case '?': case 'h': cmp_usage(); return 1;
+        // A requested usage message is not an error; an unknown option is.
+        case OPTARG_HELP: case 'h': cmp_usage(); return 0;
+        case '?': cmp_usage(); return 1;
         SHARED_FIELDS
     }}
     if(verbosity >= INFO) {

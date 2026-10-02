@@ -152,6 +152,10 @@ int main(int argc, char **argv) {
         if(std::strcmp(argv[1], "printmin") == 0) {
             return printmin_main(argc - 1, argv + 1);
         }
+        if(std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
+            main_usage();
+            return 0;
+        }
     }
     return main_usage();
 }
