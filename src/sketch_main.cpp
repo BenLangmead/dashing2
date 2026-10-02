@@ -116,6 +116,12 @@ int sketch_main(int argc, char **argv) {
         .seedseed(seedseed)
         .fasta_dedup(fasta_dedup);
     opts.by_chrom_ = by_chrom;
+    // --countmin-size approximates the weights of BagMinHash and ProbMinHash sketches;
+    // --set, --countdict and --seq keep exact k-mers and counts, so it is ignored there.
+    if(opts.cssize_ && opts.kmer_result_ >= FULL_MMER_SET) {
+        std::fprintf(stderr, "Note: --countmin-size applies only to weighted sketches (--multiset, --prob); ignoring it for exact k-mer modes.\n");
+        opts.cssize_ = 0;
+    }
     opts.downsample(downsample_frac);
     opts.compressed_a_ = compressed_a;
     opts.compressed_b_ = compressed_b;
