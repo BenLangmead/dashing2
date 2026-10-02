@@ -1095,12 +1095,13 @@ struct CountFilteredCSetSketch: public CSetSketch<FT> {
             potentials_.emplace(id, 1);
             return;
         }
-        if(pit->second >= mc_) {
-            ++pit->second; // Already added
-            return;
-        }
-        if(++pit->second < mc_) return;
-        // What's left now is that we have just reached the minimum count
+        const bool added = pit->second >= mc_;
+        ++pit->second;
+        if(!added && pit->second < mc_) return;
+        // An id added earlier only needs its saved counts updated, which the walk below does
+        // for the registers it still holds; without saved counts there is nothing to do.
+        if(added && idcounts_.empty()) return;
+        // What's left is an id that has just reached the minimum count, or one added earlier whose counts are saved
         // We will periodically remove unnecessary k-mers as the sketch becomes filled.
         // This is done randomly as a function of the random id;
         ls_.reset();
@@ -1112,7 +1113,8 @@ struct CountFilteredCSetSketch: public CSetSketch<FT> {
             if(mvt_.update(idx, ev)) {
                 if(!ids_.empty()) {
                     ids_.operator[](idx) = id;
-                    if(!idcounts_.empty()) idcounts_[idx] = 1;
+                    // Count every occurrence so far, including those before the id reached mc_
+                    if(!idcounts_.empty()) idcounts_[idx] = pit->second;
                 }
                 mv = max();
             } else if(!idcounts_.empty() && id == ids_[idx]) {
