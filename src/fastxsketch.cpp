@@ -598,24 +598,27 @@ do {\
             if(opss.empty() && fss.empty() && cfss.empty()) THROW_EXCEPTION(std::runtime_error("Both opss and fss are empty\n"));
             const size_t opsssz = opss.size();
             auto &cret = ret.cardinalities_[myind];
+            SmallSetCounter exact(small_set_limit(opts));
             if(opsssz) {
                 assert(opss.size() > unsigned(tid));
                 assert(opss.at(tid).total_updates() == 0);
                 auto p = &opss[tid];
-                perf_for_substrs([p](auto hv) {p->update(fold64(hv));});
+                perf_for_substrs([p,&exact](auto hv) {const uint64_t id = fold64(hv); exact.add(id); p->update(id);});
                 assert(ret.cardinalities_.size() > i);
-                cret = p->getcard();
+                cret = exact.cardinality(p->getcard());
             } else {
                 if(opts.sketch_compressed_set) {
                     std::visit([&](auto &x) {
-                        perf_for_substrs([&x](auto hv) {
-                            x.update(fold64(hv));
+                        perf_for_substrs([&x,&exact](auto hv) {
+                            const uint64_t id = fold64(hv);
+                            exact.add(id);
+                            x.update(id);
                         });
-                        cret = x.cardinality();
+                        cret = exact.cardinality(x.cardinality());
                     }, cfss.at(tid));
                 } else {
-                    perf_for_substrs([p=&fss[tid]](auto hv) {p->update(fold64(hv));});
-                    cret = fss[tid].getcard();
+                    perf_for_substrs([p=&fss[tid],&exact](auto hv) {const uint64_t id = fold64(hv); exact.add(id); p->update(id);});
+                    cret = exact.cardinality(fss[tid].getcard());
                 }
             }
             if(ofp) checked_fwrite(ofp, &cret, sizeof(double));
