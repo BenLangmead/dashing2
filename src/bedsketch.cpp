@@ -2,6 +2,28 @@
 
 namespace dashing2 {
 
+// Every option that changes a BED sketch is part of its cache file name, followed by the
+// sketch suffix (.ss, .opss, .bmh or .pmh), so a cache is only reused under the same options.
+static std::string bed_cache_suffix(const Dashing2Options &opts) {
+    std::string ret = ".sketchsize" + std::to_string(opts.sketchsize_);
+    if(opts.count_threshold_ > 0) {
+        ret += ".ct_threshold";
+        if(std::fmod(opts.count_threshold_, 1.)) ret += std::to_string(opts.count_threshold_);
+        else ret += std::to_string(int(opts.count_threshold_));
+    }
+    if(!opts.trim_chr_)
+        ret += ".notrimchr";
+    if(opts.bed_parse_normalize_intervals_)
+        ret += ".normalize_intervals";
+    if(opts.sspace_ != SPACE_SET) {
+        ret += '.';
+        ret += to_string(opts.ct());
+        if(opts.ct() != EXACT_COUNTING)
+            ret += std::to_string(opts.cssize_);
+    }
+    return ret + to_suffix(opts);
+}
+
 std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const Dashing2Options &opts) {
     if(opts.sspace_ > SPACE_PSET) throw std::invalid_argument("Can't do edit distance for BED files");
     if(opts.bed_parse_normalize_intervals_ && opts.sspace_ == SPACE_SET)
@@ -13,12 +35,13 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     Counter ctr(opts.cssize_);
     std::pair<std::vector<RegT>, double> ret({std::vector<RegT>(opts.sketchsize_), 0.});
     auto &retvec(ret.first);
-    std::string cache_path = path + to_suffix(opts);
+    const std::string suffix = bed_cache_suffix(opts);
+    std::string cache_path = path + suffix;
     DBG_ONLY(std::fprintf(stderr, "Using %s\n", op ? "oneperm": "fullsetsketch");)
 
     if(opts.trim_folder_paths()) {
         // The cache file keeps the sketch suffix, so it is never named like an input BED file.
-        cache_path = trim_folder(path) + to_suffix(opts);
+        cache_path = trim_folder(path) + suffix;
         if(opts.outprefix_.size())
             cache_path = opts.outprefix_ + '/' + cache_path;
     }
