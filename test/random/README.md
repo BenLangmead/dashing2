@@ -362,3 +362,105 @@ Measured on the fixed build with `-j 4` on a 12-core Apple Silicon laptop
 KMC's own run time (about 0.85 s per `kmc` call regardless of input size,
 mostly idle in its second stage) dominates suites A and B; the wrappers run
 the counts of one trial side by side.
+
+## Suite D: input processing and k-mer generation
+
+`suite_d_inputs.py` (helpers in `d2rand_d.py`) checks the modes that decide
+which items reach a sketch. Each trial belongs to one of ten families, chosen
+round robin by trial index (`--family NAME` runs one family), and draws its
+own inputs (random records with repeats, N and IUPAC runs, lowercase, RNA U,
+homopolymers, records shorter than k, empty records) and options. Quick: 20
+trials per family (200 trials, about 30 s with `-j 6`); thorough: 100 per
+family (1000 trials, about 85 s with `-j 8`).
+
+`d2rand_d.py` reimplements the selection exactly, so most checks compare
+dashing2's stored values item by item rather than counts: the DNA and protein
+encodings (2 bits per base; base-20, base-14 and base-6 integers; 3 bits for
+`--protein8`; first character most significant; aliases U as T, O as K, U as
+C), the stored form (XOR with a mask derived from `--seed`, 0 by default,
+then the Wang hash, per 64-bit half for `-2`), the window order (a window is
+the last w - c + 1 valid k-mers of the record, c the k-mer span; invalid
+k-mers are skipped; one item per full window; a record with fewer valid
+k-mers emits its best one; best = smallest (score, k-mer), score = FRev64 or
+the 128-bit CEHasher, for `--entmin` the top 48 bits of that hash divided by
+the k-mer's Shannon entropy plus 1e-4) and the `--downsample` hash. The
+oracle reproduces `sketch --set`, `-J` and `-G` output exactly on every
+direct-encoding path. For k beyond the exact limit (rolling polynomial hash)
+the checks are the number of distinct k-mers and the windowed stream as the
+sliding minimum of dashing2's own unwindowed stream (score: FRev64 of the
+hash, or the low 64 bits of CEHasher with `-2`).
+
+| Family | What it checks |
+|---|---|
+| byseq | `cmp --parse-by-seq --square` equals the same records as one file each, cell by cell, for OPH, `--full`, `-B`, `--prob`, `--fastcmp 2`, `--bbit-sigs`, `--fastcmp-shorts` and three random measures, with windows, `--entmin`, `--spacing`, `--filterset`, `--downsample`, `--no-canon`, `-2`, protein, FASTQ/gzip; row names are the record names (duplicates kept); `--set`/`-J` are rejected cleanly; the `sketch -G --parse-by-seq -o` file holds each record's stream |
+| minimizer | `--set`, `-J` (emission counts) and `-G` against the exact window oracle, k 1-64 with and without `-2`, canonical or not, w below, at and above k, `--seed`; density sanity; rolling path as above |
+| entmin | exact `--entmin` streams (a pick within float rounding of the best score is accepted); picks are input k-mers; mean entropy of picks is at least that of plain minimizers; reverse-complement symmetry; no effect without `-w`; fallback to plain minimizers above the exact limit |
+| spacing | spaced sets and streams (never canonicalized), run-length syntax equals the expanded list, all-zero spacing equals contiguous `--no-canon`, rejection above capacity and of a wrong number of gaps |
+| protein | `--protein`/`--protein20`/`--enable-protein`, `--protein14`, `--protein8`, `--protein6` exact sets up to the 64/128-bit capacity (14/29, 16/33, 21/42, 24/49), distinct counts above it; `--no-canon` irrelevant; O and U aliases; B, Z, X, J and `*` break k-mers |
+| seqmode | file-mode `.mmerseq` streams (with `--hp-compress`), `cmp -G` (every measure prints the longer stream length minus the item edit distance; `--compute-edit-distance` prints the edit distance), the `-G` cardinality, and the by-seq stream file layout |
+| filter | `--filterset` from FASTA, from a binary file of stored values (`path:b`, also gzipped), with `-2`, windows and the rolling path; filtered `-G` streams |
+| downsample | kept set equals the hash oracle, kept fraction within 5 binomial SD, Jaccard of the downsampled sets within 5 SE of the full Jaccard, printed `--set` similarity, `-G` stream, values 0, 1 and out of range |
+| hpseed | `--hp-compress` collapses repeats across record boundaries in file mode and within records with `--parse-by-seq`, leaves `--set` alone; stored values follow each seed's mask; exact-mode measures are identical for seeds 0, 1, 42, 2^63, 2^64 - 1 and random; seeded sketches are valid |
+| inputs | FASTA (wrapped or not, with or without header comments), FASTQ, gzip, bzip2, xz, zstd, files in subdirectories, `-F` and `-Q` lists with blank lines, extra spaces and CRLF, joint entries (two files on one line, row name = the trimmed line); every measure and the `-J` counts against KMC3 (which is checked against the Python oracle) |
+
+Format notes (behaviour, not failures): the `--parse-by-seq -G -o` file has a
+20-byte header (n, k, w, then alphabet | canonical << 8; the help lists only
+the first three; w is 2^32 - 1 without `-w`) and stores the k-mers
+themselves, while file-mode `.mmerseq` files store masked values; the
+Hamming comparison in `wcompare.cpp` is unreachable because `-G` always
+compares by edit distance; the help gives 22 as the `--protein8` limit, the
+code uses 21.
+
+### Known issues found by suite D (expected failures)
+
+Each is registered with an emulation: a mismatch is an expected failure only
+when dashing2's output equals what the described defect predicts, so any
+other discrepancy in the same check still fails.
+
+* `uncanon-window-polyT`: with `--no-canon` (or `--spacing`) and k filling
+  the k-mer word (32, or 64 with `-2`), a window whose minimizer is poly-T
+  emits nothing, because the all-ones encoding is also the "window not full"
+  marker (bonsai encoder.h `for_each_uncanon_unspaced_windowed`,
+  `for_each_uncanon_spaced`; qmap.h `next_value`). Repro: a 40-bp T run,
+  `sketch -G --no-canon -k 32 -w 40` emits 354 items, the oracle 355.
+* `spaced-window-invalid`: `--spacing` with `-w` pushes k-mers overlapping
+  an invalid character into the window as the all-ones marker with a real
+  score, so windows count positions, and a window won by the marker emits
+  nothing; records shorter than the window emit nothing (encoder.h
+  `next_minimizer`, `for_each_uncanon_spaced`). Repro: `-k 8 --spacing
+  0,1,0,2,0,0,1 -w 20`, 5 records with N runs: 479 stream items and 95
+  distinct, oracle 463 and 92.
+* `spacing-long-filename`: exact modes and caches name their files with the
+  whole seed (`2x1,3x1,...`, src/fastxmerge.cpp:94-95), so an irregular seed
+  with large k exceeds the 255-byte name limit and `sketch --set -k 64 -2
+  --spacing 1,2,1,2,...` aborts with "Failed to open" (exit 134).
+* `byseq-exact-card`: `--parse-by-seq` with OPH or `--full` (also log or
+  b-bit compressed, `--fastcmp-shorts`) replaces cardinalities below 10 x S by
+  exact counts (src/fastxsketchbyseq.cpp, "exact counting fall-back"); file
+  mode keeps the estimate, so intersection, union and the containments of a
+  record differ from the same record as a file (e.g. 1186 vs 1136.09). The
+  similarities agree exactly.
+* `byseq-downsample`: `--parse-by-seq` ignores `--downsample`: the per-record
+  callbacks never call `downsample_pass`. Repro: `cmp --parse-by-seq --full
+  --downsample 0.5 -k 15` gives intersection 1186 for a record whose full set
+  has 1186 k-mers (file mode 608.7).
+* `byseq-compressed`: `--parse-by-seq` opens `.bz2`, `.xz` and `.zst`
+  inputs with `gzopen`, which passes compressed bytes through: one garbage
+  record with a binary name, exit 0 (file mode decompresses them).
+* `filterset-windowed`: with `-w`, `--filterset FASTA` removes only the
+  filter file's minimizers (src/d2.cpp builds the set with the windowed
+  encoder), so input minimizers present in the filter file as non-minimizers
+  survive. Repro: filter = 25-bp fragments of the input, `-k 15 -w 30`: 185
+  of 223 minimizers kept, 163 expected.
+* `byseq-seq-stale-window`: `sketch -G --parse-by-seq` on the rolling path
+  without canonicalization (k > 32, or > 64 with `-2`; `--no-canon` or
+  protein) gives a record shorter than k the previous record's last window
+  minimum: `RollingHasher::for_each_uncanon` returns before resetting its
+  window, and the by-seq fallback for short records reads it. Repro: a 200-bp
+  record then a 10-bp record, `-k 40 -w 50 --no-canon`: the second stream has
+  1 item (0 expected).
+
+On stock v2.1.20 the quick preset (seed 1) fails 163 of 200 trials (391
+checks): every family is hit, mainly by the fixed `--entmin`, `--downsample`,
+`--spacing` capacity, protein encoding, `--parse-by-seq --set` and rolling
+hash bugs.
