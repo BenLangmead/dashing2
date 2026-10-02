@@ -1,5 +1,6 @@
 #include "d2.h"
 #include "bwsketch.h"
+#include "bedsketch.h"
 #ifndef NOCURL
 #define NOCURL 1
 #endif
@@ -18,31 +19,26 @@ using std::to_string;
 
 
 
+// Every option that changes a BigWig sketch is part of its cache file name, followed by the
+// sketch suffix (.ss, .opss, .bmh or .pmh), so a cache is only reused under the same options.
+static std::string bw_cache_suffix(const Dashing2Options &opts) {
+    std::string ret = ".sketchsize" + std::to_string(opts.sketchsize_);
+    if(opts.count_threshold_ > 0) {
+        ret += ".ct_threshold";
+        if(std::fmod(opts.count_threshold_, 1.)) ret += std::to_string(opts.count_threshold_);
+        else ret += std::to_string(int(opts.count_threshold_));
+    }
+    return ret + to_suffix(opts);
+}
+
 BigWigSketchResult bw2sketch(std::string path, const Dashing2Options &opts, bool parallel_process) {
     BigWigSketchResult ret;
-    std::string cache_path = path.substr(0, path.find_last_of('.'));
-    cache_path += to_suffix(opts);
-    if(opts.trim_folder_paths()) {
-        DBG_ONLY(std::fprintf(stderr, "Cached path before trimming: %s\n", cache_path.data());)
-        cache_path = trim_folder(path);
-        DBG_ONLY(std::fprintf(stderr, "Cached path after trimming: %s\n", cache_path.data());)
-        if(opts.outprefix_.size()) {
-            cache_path = opts.outprefix_ + '/' + cache_path;
-        }
-    }
-    if(opts.seedseed_ != 0)
-        cache_path += ".seed" + std::to_string(opts.seedseed_);
-    if(opts.kmer_result_ <= FULL_SETSKETCH)
-        cache_path = cache_path + std::string(".sketchsize") + std::to_string(opts.sketchsize_);
-    if(opts.count_threshold_ > 0) {
-        cache_path = cache_path + ".ct_threshold";
-        if(std::fmod(opts.count_threshold_, 1.)) cache_path = cache_path + std::to_string(opts.count_threshold_);
-        else cache_path = cache_path + std::to_string(int(opts.count_threshold_));
-    }
-    cache_path += ".";
-    cache_path += opts.kmer_result_ <= FULL_SETSKETCH ? to_string(opts.sspace_): to_string(opts.kmer_result_);
+    // Only whole-file SetSketch, OnePermSetSketch, BagMinHash and ProbMinHash sketches are cached,
+    // under the same naming and freshness rules as BED inputs.
+    const bool cacheable = opts.cache_sketches_ && !opts.by_chrom_ && opts.kmer_result_ <= FULL_SETSKETCH;
+    const std::string cache_path = interval_cache_path(path, opts, bw_cache_suffix(opts));
     DBG_ONLY(std::fprintf(stderr, "Cache path: %s. isfile: %d\n", cache_path.data(), bns::isfile(cache_path));)
-    if(opts.cache_sketches_ && !opts.by_chrom_ && bns::isfile(cache_path)) {
+    if(cacheable && interval_cache_is_fresh(cache_path, path)) {
         auto [ifp, ispopen] = xopen(cache_path);
         std::fread(&ret.card_, sizeof(ret.card_), 1, ifp);
         auto res = new std::vector<RegT>;
@@ -203,13 +199,13 @@ BigWigSketchResult bw2sketch(std::string path, const Dashing2Options &opts, bool
     bwCleanup();
     if(opts.by_chrom_)
         ret.chrmap_.reset(new flat_hash_map<std::string, std::vector<RegT>>(std::move(retmap)));
-    if(opts.kmer_result_ <= FULL_SETSKETCH) {
+    if(cacheable) {
         std::FILE *ofp = bfopen(cache_path.data(), "wb");
         if(!ofp) THROW_EXCEPTION(std::runtime_error(std::string("Could not open file at ") + cache_path + " for writing"));
         std::fwrite(&ret.card_, sizeof(ret.card_), 1, ofp);
         checked_fwrite(ofp, ret.global_->data(), sizeof(RegT) * ret.global_->size());
         std::fclose(ofp);
-    } else {
+    } else if(opts.cache_sketches_ && opts.kmer_result_ > FULL_SETSKETCH) {
         std::fprintf(stderr, "Warning: only SetSketch, OnePermSetSketch, ProbMinHash, and BagMinHash are cached to disk for BigWigs. Nothing being cached to disk.\n");
     }
     return ret;

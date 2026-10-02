@@ -37,6 +37,25 @@ static int64_t bed_mtime_ns(const std::string &path) {
     return int64_t(ts.tv_sec) * 1000000000 + ts.tv_nsec;
 }
 
+std::string interval_cache_path(const std::string &path, const Dashing2Options &opts, const std::string &suffix) {
+    if(!opts.trim_folder_paths()) return path + suffix;
+    // The cache file keeps the sketch suffix, so it is never named like an input file.
+    // Files with the same name in different directories must not share a cache file,
+    // so the file name is tagged with a hash of its absolute path.
+    char *const abspath = ::realpath(path.data(), nullptr);
+    const std::string key = abspath ? abspath: path;
+    std::free(abspath);
+    char buf[24];
+    std::string ret = trim_folder(path) + std::string(buf, std::snprintf(buf, sizeof(buf), ".%016llx", static_cast<unsigned long long>(XXH3_64bits(key.data(), key.size())))) + suffix;
+    if(opts.outprefix_.size())
+        ret = opts.outprefix_ + '/' + ret;
+    return ret;
+}
+
+bool interval_cache_is_fresh(const std::string &cache_path, const std::string &path) {
+    return bns::isfile(cache_path) && bed_mtime_ns(path) <= bed_mtime_ns(cache_path);
+}
+
 std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const Dashing2Options &opts) {
     if(opts.sspace_ > SPACE_PSET) throw std::invalid_argument("Can't do edit distance for BED files");
     if(opts.bed_parse_normalize_intervals_ && opts.sspace_ == SPACE_SET)
@@ -48,24 +67,10 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     Counter ctr(opts.cssize_);
     std::pair<std::vector<RegT>, double> ret({std::vector<RegT>(opts.sketchsize_), 0.});
     auto &retvec(ret.first);
-    const std::string suffix = bed_cache_suffix(opts);
-    std::string cache_path = path + suffix;
+    const std::string cache_path = interval_cache_path(path, opts, bed_cache_suffix(opts));
     DBG_ONLY(std::fprintf(stderr, "Using %s\n", op ? "oneperm": "fullsetsketch");)
-
-    if(opts.trim_folder_paths()) {
-        // The cache file keeps the sketch suffix, so it is never named like an input BED file.
-        // Files with the same name in different directories must not share a cache file,
-        // so the file name is tagged with a hash of its absolute path.
-        char *const abspath = ::realpath(path.data(), nullptr);
-        const std::string key = abspath ? abspath: path;
-        std::free(abspath);
-        char buf[24];
-        cache_path = trim_folder(path) + std::string(buf, std::snprintf(buf, sizeof(buf), ".%016llx", static_cast<unsigned long long>(XXH3_64bits(key.data(), key.size())))) + suffix;
-        if(opts.outprefix_.size())
-            cache_path = opts.outprefix_ + '/' + cache_path;
-    }
     // A cache file older than its input is not reused, so an input that was overwritten is sketched again.
-    if(opts.cache_sketches_ && bns::isfile(cache_path) && bed_mtime_ns(path) <= bed_mtime_ns(cache_path)) {
+    if(opts.cache_sketches_ && interval_cache_is_fresh(cache_path, path)) {
         auto [ifp, ispopen] = xopen(cache_path);
         // The cache holds the cardinality followed by exactly sketchsize_ registers.
         const bool ok = std::fread(&ret.second, sizeof(ret.second), 1, ifp) == 1
