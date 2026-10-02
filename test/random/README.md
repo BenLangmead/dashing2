@@ -348,6 +348,19 @@ modes may report a nonzero intersection (one chance register match, e.g.
 0; the identity checks skip pairs with an empty operand.
 
 
+The wider suites D, E and F found further issues; these are fixed in the tested code (`test/all-fixes` plus the branches named here). The suites still detect each by its id, and `FIXED_IDS` in d2rand.py makes a recurrence a failure reported as a regression rather than an expected failure.
+
+* `symcontain-as-distance` (`fix/symcontain-similarity`): `--topk`, `--similarity-threshold` and `--greedy` ranked and thresholded `--symmetric-containment` as a distance.
+* `binary-tail-32k` (`fix/binary-tail-32k`): the final flush of queued `cmp` output dropped a block whose size was an exact multiple of the 128 KiB write chunk, in both binary and text output, with exit status 0.
+* `lsh-self-candidate` (`fix/lsh-self-candidate`): the LSH candidate cap counted the query itself, so a qualifying pair could be missing from `--topk` and `--similarity-threshold` output.
+* `countmin-exact-modes` (`fix/countmin-exact-modes`): `-c/--countmin-size` made `--set` and `-J` inexact; exact modes now ignore it with a note on stderr.
+* `countsketch-header-newline` (`fix/countsketch-header-newline`): with `-c` the `#Dashing2Options` header line was split in two.
+* `readme-edit-distance-crash` (`fix/sketch-compute-edit-distance`): `dashing2 sketch --parse-by-seq --edit-distance --compute-edit-distance` (README Use 6) crashed because the sequences were freed before comparison.
+* `byseq-downsample` (`fix/byseq-downsample`): `--parse-by-seq` ignored `--downsample`.
+* `byseq-compressed` (`fix/byseq-compressed`): `--parse-by-seq` read `.bz2`, `.xz` and `.zst` inputs as raw bytes.
+
+`edit-distance-nondeterministic` remains an expected failure here. Its fix (`fix/edit-distance-nondeterministic`) changes the sketch library inside bonsai and is not yet part of the tested branch.
+
 ## Runtimes
 
 Measured on the fixed build with `-j 4` on a 12-core Apple Silicon laptop

@@ -341,6 +341,16 @@ class D2RowsError(D2Error):
     pass
 
 
+# Issues the suites still detect by id but that are fixed in the tested code: a check that
+# fails with one of these ids is reported as a regression rather than an expected failure.
+FIXED_IDS = frozenset([
+    "emit-row-loss",
+    "symcontain-as-distance", "binary-tail-32k", "lsh-self-candidate",            # suite E
+    "byseq-downsample", "byseq-compressed",                                        # suite D
+    "countmin-exact-modes", "countsketch-header-newline", "readme-edit-distance-crash",  # suite F
+])
+
+
 ROW_LOSS = ("emit-row-loss", "dashing2 cmp occasionally exits 0 with a matrix row missing (about 1 call in "
             "several thousand; see README.md)")
 
@@ -628,10 +638,13 @@ class TrialResult:
         self.elapsed = 0.0
 
     def check(self, ok, name, detail="", known=None):
-        """Records one check. A failure matching a known issue id (known) is an expected failure."""
+        """Records one check. A failure matching a known issue id (known) is an expected failure,
+        unless that issue has been fixed (FIXED_IDS), in which case it is a regression."""
         self.checks += 1
         if not ok:
-            if known and not STRICT[0]:
+            if known in FIXED_IDS:
+                self.fails.append("%s: %s (regression of fixed issue %s)" % (name, detail, known))
+            elif known and not STRICT[0]:
                 self.xfails.append((known, "%s: %s" % (name, detail)))
             else:
                 self.fails.append("%s: %s%s" % (name, detail, " (known issue %s)" % known if known else ""))

@@ -294,13 +294,6 @@ DOC_BUGS = {
                           "write them (fastxsketch.cpp:626-629 keep ids only for the stacked file).",
     "seq-header": "help (-G/--seq): 'header: [uint64_t nitems, uint32_t k, uint32_t w]'; the file has a fourth "
                   "field, a uint32 alphabet/flags word, so the header is 20 bytes (printminmain.cpp:31-41).",
-    "countmin-exact-modes": "help: '--countmin-size ... This is only relevant to WeightedSetSketch and "
-                            "DiscreteProbabilitySetSketch'; it also replaces the exact k-mer table of --set and -J, "
-                            "which then compare count-sketch buckets: --set -c 16 gives 0.9375 for a pair with "
-                            "J = 0.8555 (fastxsketch.cpp:249, 462-475).",
-    "countsketch-header-newline": "with -c/--countmin-size the #Dashing2Options header contains a newline "
-                                  "(';counting=countsketch16\\n;canon'), so a line ';canon' without '#' appears "
-                                  "before the matrix (d2.cpp:33).",
     "fastcmp-presets-need-full": "help: '--setsketch-ab ... only supported for the SetSketch' and calls the default "
                                  "'SetSketch (one-permutation)'; --fastcmp-bytes/-shorts/-words and --setsketch-ab "
                                  "abort ('Sketch compressed is only available for FullSetSketch') unless --full is "
@@ -312,10 +305,6 @@ DOC_BUGS = {
                            "--parse-by-seq spills to $TMPDIR, but inputs under 2e9 bases are always kept in RAM.",
     "readme-use7-no-output": "README Use 7: 'dashing2 sketch ... --set --topk 25 -o input_sequence_set.topk.tsv' writes "
                              "the stacked sketches (binary) to the .tsv and no top-k table at all; --cmpout is needed.",
-    "readme-edit-distance-crash": "README Use 6 ('dashing2 sketch -p8 --cmpout knn.edit-distance.tbl -k7 --parse-by-seq "
-                                  "--edit-distance --compute-edit-distance input.fasta') segfaults, with or without "
-                                  "--seqs-in-ram: cmp_core.cpp:476-483 reads result.sequences_, which by-seq "
-                                  "sketching has freed (fastxsketchbyseq.cpp:257, 483).",
     "edit-distance-nondeterministic": "--edit-distance (OrderMinHash, documented only in README.md) gives different "
                                       "similarities from run to run for the same input (0.43, 0.125, 0.497 for one "
                                       "pair at -p 1 and -p 4).",

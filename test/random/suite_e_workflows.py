@@ -40,14 +40,6 @@ PRESETS = {
 # Known issues in the tested code. A failing check tagged with one of these ids is
 # an expected failure (XFAIL) unless --strict is given. See README.md, suite E.
 KNOWN = {
-    "symcontain-as-distance": "--symmetric-containment is ranked as a distance by --topk, --similarity-threshold and "
-                              "--greedy: distance() in src/cmp_main.h:44 returns true for it",
-    "lsh-self-candidate": "--topk and --similarity-threshold ask the LSH index for n - 1 (or 3.5 K) candidates, but the "
-                          "query's own id fills one slot (query_candidates stops at maxcand including itself, "
-                          "src/ssi.h:431 and :453; ntoquery in src/index_build.cpp:61), so a qualifying pair is "
-                          "dropped when both of its queries are truncated",
-    "binary-tail-32k": "binary matrix output drops a queued block of a multiple of 32768 floats: the final write "
-                       "loop writes (nwritten & 32767) floats for the last chunk, which is 0 (src/emitrect.cpp:395)",
     "stacked-kmercounts-f32": "sketch -N -o writes <out>.kmercounts.f64 as float32 (kmercounts_ is std::vector<float>, "
                               "src/fastxsketch.h:45, written at src/sketch_core.cpp:200)",
     "full-mincount-counts": "--full -N with -m > 1 saves count 1 for every sampled k-mer: CountFilteredCSetSketch::update "

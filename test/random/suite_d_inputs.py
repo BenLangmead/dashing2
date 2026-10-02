@@ -58,11 +58,6 @@ KNOWN = {
     "byseq-exact-card": "--parse-by-seq with OPH or --full replaces the estimated cardinality by an exact count when "
                         "it is below 10 x S (src/fastxsketchbyseq.cpp, 'exact counting fall-back'), so intersection, "
                         "union, containment and symmetric containment differ from the same record sketched as a file",
-    "byseq-downsample": "--parse-by-seq ignores --downsample: the per-record k-mer callbacks never call "
-                        "downsample_pass (src/fastxsketchbyseq.cpp fsfunc/nofsfunc and the -G lambda)",
-    "byseq-compressed": "--parse-by-seq reads .bz2, .xz and .zst inputs with gzopen, which passes the compressed "
-                        "bytes through as text: garbage records and names, exit 0 (src/fastxsketchbyseq.cpp; file mode "
-                        "decompresses these through popen)",
     "filterset-windowed": "with -w, --filterset removes only the filter file's own minimizers rather than every k-mer "
                           "in it, so input minimizers that occur in the filter file as non-minimizers are kept "
                           "(src/d2.cpp Dashing2Options::filterset builds the set with the windowed encoder)",
@@ -744,7 +739,7 @@ def fam_byseq(rng, wd, R, res, preset):
             C = cmp_matrix(R, ["--parse-by-seq", "--square"] + nod + mf + [path])
             if all(close(A.get(i, j), C.get(i, j)) for i in range(n) for j in range(n)):
                 kid = "byseq-downsample"
-        elif mname in ("oph", "full", "full-fc2", "full-bb1", "full-ab-shorts") and meas in ("intersection", "union", "containment",
+        if kid is None and mname in ("oph", "full", "full-fc2", "full-bb1", "full-ab-shorts") and meas in ("intersection", "union", "containment",
                                                                            "symcontain"):
             if byseq_card_emulation(R, common, path, files, A, B, meas, k, S):
                 kid = "byseq-exact-card"
