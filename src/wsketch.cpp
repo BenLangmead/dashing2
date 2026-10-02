@@ -280,7 +280,8 @@ int wsketch_main(int argc, char **argv) {
         case 'U': f32 = -2; break;
         case 'o': outpref = optarg; break;
         case 'P': ip32 = true; break;
-        case '?': case 'h': return wsketchusage();
+        case 'h': wsketchusage(); return 0;
+        case '?': return wsketchusage();
     }}
     OMP_ONLY(omp_set_num_threads(std::max(nthreads, 1));)
     auto diff = argc - optind;

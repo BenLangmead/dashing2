@@ -63,7 +63,9 @@ int sketch_main(int argc, char **argv) {
     for(;(c = getopt_long(argc, argv, "m:p:k:w:c:f:S:F:Q:o:L:CNs2BPWh?ZJGHv", sketch_long_options, &option_index)) >= 0;) {
         switch(c) {
             SHARED_FIELDS
-            case OPTARG_HELP: case '?': case 'h': sketch_usage(); return 1;
+            // A requested usage message is not an error; an unknown option is.
+            case OPTARG_HELP: case 'h': sketch_usage(); return 0;
+            case '?': sketch_usage(); return 1;
         }
         //std::fprintf(stderr, "After getopt argument %d, of is %s\n",c , to_string(of).data());
     }
