@@ -468,6 +468,7 @@ static constexpr const char *siglen =
         "--bed to sketch BED files for interval sets\n"\
         "--bigwig to sketch BigWig files for coverage vectors\n"\
         "and --leafcutter to sketch LeafCutter splicing output\n"\
+        "--bed and --bigwig sketches do not depend on --seed: positions are hashed from the chromosome name and coordinate with fixed hash functions.\n"\
         "\n\nSequence Parsing Options --\n"\
         "If parsing fasta or fastq data, you can set several options:\n"\
         "  1. Alphabet [Default: DNA]. See 'Sequence Alphabet Options' below for more details.\n"\
@@ -503,6 +504,7 @@ static constexpr const char *siglen =
         "        Otherwise, this changes the hash function applied to k-mers when generated sorted hash sets. This makes it easy to decode quickly, but we can still get good bottom-k estimates using these hashes\n"\
         "        the xor value for u64 kmers (unless --long-kmers is enabled) is the Wang 64-bit hash of the seed.\n"\
         "        u128 kmers (--long-kmers) have the same lower 64 bits, but the upper 64 bits are the Wang 64-bit hash of the u64 xor value.\n"\
+        "        --seed applies to sequence input only; it does not change --bed or --bigwig sketches.\n"\
         "Detailed Filtering Options\n\n"\
         "--downsample\t Downsample minimizers at fraction <arg> . Default is 1: IE, all minimizers pass.\n"\
         "-m/--threshold/--count-threshold <arg>: Set a count threshold for inclusion. If set to > 1, this will only sketch k-mers with count >= <arg>\n"\
