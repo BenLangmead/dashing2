@@ -72,7 +72,7 @@ struct SketchingResult {
     mm::vector<RegT> signatures_;
     // TODO: mmap these matrices to reduce peak memory footprint
     mm::vector<uint64_t> kmers_;
-    std::vector<float> kmercounts_; // Contains counts for k-mers, if desired
+    std::vector<double> kmercounts_; // Contains counts for k-mers, if desired
     // This contains the k-mers corresponding to signatures, if asked for 128-bit k-mers, these are stored in chunks of 2 64-bit integers.
     size_t nq = 0;
     size_t total_seqs() const {
