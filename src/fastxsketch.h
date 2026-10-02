@@ -42,7 +42,7 @@ struct SketchingResult {
     mm::vector<RegT> signatures_;
     // TODO: mmap these matrices to reduce peak memory footprint
     mm::vector<uint64_t> kmers_;
-    std::vector<float> kmercounts_; // Contains counts for k-mers, if desired
+    std::vector<double> kmercounts_; // Contains counts for k-mers, if desired
     // --parse-by-seq with full k-mer sets (--set): per-sequence sorted, deduplicated
     // k-mers (fold64 of the masked k-mer, as in the exact cardinality fall-back)
     std::vector<std::vector<uint64_t>> kmersets_;
