@@ -962,18 +962,23 @@ def chk_readme(c):
     for cmd in cmds:
         a = shlex.split(cmd)[1:]
         r = c.run(a)
-        # Every other input that shares a k-mer is within the top 25 of three inputs.
+        # Each row lists other inputs with their exact similarity. Every input with similarity of at least 0.05
+        # is within the top 25 of three and shares sampled hashes with the query (the LSH index finds candidates
+        # through those), so it must be listed; pairs below that may lack a shared key.
         mode = [x for x in a if x in ("--set", "--countdict")]
         km = [x for x in a if x.startswith("-k")]
         mm = c.mat(["cmp"] + km + mode + files, "readme-use7-matrix")
-        exp = {f: sorted(g for j, g in enumerate(files) if j != i and mm and mm.get(min(i, j), max(i, j)) > 0)
-               for i, f in enumerate(files)}
+        sims = {(f, g): mm.get(min(i, j), max(i, j)) if mm else None for i, f in enumerate(files)
+                for j, g in enumerate(files) if i != j}
         try:
             L = parse_lists(open(c.path("input_sequence_set.topk.tsv"), errors="replace").read())
             os.remove(c.path("input_sequence_set.topk.tsv"))
         except (OSError, ValueError):
             L = {}
-        c.ok(sorted(L) == sorted(files) and all(sorted(x for x, _ in L[f]) == exp[f] for f in files), "readme-use7",
+        ok = sorted(L) == sorted(files) and all(
+            all((f, x) in sims and sims[(f, x)] and close(v, sims[(f, x)], 1e-5) for x, v in L[f]) and
+            all(g in {x for x, _ in L[f]} for g in files if g != f and (sims[(f, g)] or 0) >= 0.05) for f in files)
+        c.ok(ok, "readme-use7",
              "%s: %s; input_sequence_set.topk.tsv lists %s" % (cmd, r.brief(), sorted(L)),
              known="readme-use7-no-output")
     # Use 4: protein, by sequence.

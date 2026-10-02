@@ -832,9 +832,12 @@ def fam_seqmode(rng, wd, R, res, preset):
         M = cmp_matrix(R, ["-G", "-o", "cmp_out", "--compute-edit-distance"] + fl + ["a.fa", "b.fa"],
                        rows=["a.fa", "b.fa"])
         res.check(close(M.get(0, 1), ed), "G-edit-distance", "dashing2 %s, Levenshtein %d" % (M.get(0, 1), ed))
-    # The cardinality of a -G sketch is its stream length.
+    # The cardinality of a -G sketch is its stream length in 64-bit words (two per item with -2), as in the
+    # stacked minimizer-sequence file, in file mode and with --parse-by-seq alike.
     cards, _ = sketch_names(R, ["-G"] + fl, "a.fa")
-    res.check(len(cards) == 1 and cards[0][1] == len(sa), "G-cardinality", "names.txt %s, stream %d" % (cards, len(sa)))
+    words = len(sa) * (2 if long else 1)
+    res.check(len(cards) == 1 and cards[0][1] == words, "G-cardinality", "names.txt %s, stream %d items, %d words" % (
+        cards, len(sa), words))
     # By-seq stream file: header and per-record streams against the oracle.
     names = ["q%d" % i for i in range(len(recs1))]
     write_records(os.path.join(wd, "bs.fa"), recs1, names)
