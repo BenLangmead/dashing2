@@ -99,8 +99,28 @@ struct OptSketcher {
 };
 void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t newsz, std::vector<OptSketcher> &sketchvec, size_t &lastindex, size_t nthreads, const std::string_view path);
 
+// Opens a sequence file the same way bonsai's Encoder::for_each does in file mode:
+// .xz, .bz2 and .zst inputs are decompressed through a pipe, and zlib reads
+// everything else (plain or gzipped).
+struct SeqFile {
+    gzFile fp = nullptr;
+    std::FILE *pfp = nullptr;
+    explicit SeqFile(const std::string &path) {
+        const bool matchxz = endswith(path, ".xz"), matchbz = endswith(path, ".bz2"), matchzst = endswith(path, ".zst");
+        if(matchxz || matchbz || matchzst) {
+            const std::string cmd = std::string(matchxz ? "xz": matchbz ? "bzip2": "zstd") + " -dc " + path;
+            if((pfp = ::popen(cmd.data(), "r")) == nullptr) THROW_EXCEPTION(std::runtime_error("Failed to run "s + cmd));
+            fp = gzdopen(::fileno(pfp), "rb");
+        } else fp = gzopen(path.data(), "rb");
+        if(fp == nullptr) THROW_EXCEPTION(std::runtime_error("Failed to read from "s + path));
+    }
+    ~SeqFile() {
+        gzclose(fp);
+        if(pfp) ::pclose(pfp);
+    }
+};
+
 FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2DistOptions &opts, const std::string &path, kseq_t *kseqs, std::string outpath, bool parallel, size_t seqs_per_batch) {
-    gzFile ifp;
     kseq_t *myseq = kseqs ? &kseqs[OMP_ELSE(omp_get_thread_num(), 0)]: (kseq_t *)std::calloc(sizeof(kseq_t), 1);
     size_t batch_index = 0;
     OptSketcher sketcher(opts);
@@ -149,15 +169,13 @@ FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2Dist
             std::this_thread::sleep_for(std::chrono::duration<double, std::micro>{10});
         }
         threads.emplace_back([&,path]() {
-            gzFile fp = gzopen(path.data(), "r");
-            if(!fp) THROW_EXCEPTION(std::runtime_error("Failed to open gzfile"s + path + "to count sequences."));
-            kseq_t *ks = kseq_init(fp);
+            SeqFile sf(path);
+            kseq_t *ks = kseq_init(sf.fp);
             while(kseq_read(ks) >= 0) {
                 ++total_nseqs_a;
                 total_bases_a += ks->seq.l;
             }
             kseq_destroy(ks);
-            gzclose(fp);
         });
         std::erase_if(threads, join_if_joinable);
     }, path);
@@ -232,9 +250,9 @@ FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2Dist
     }
     for_each_substr([&](const auto &x) {
         DBG_ONLY(std::fprintf(stderr, "Processing substr %s\n", x.data()););
-        if((ifp = gzopen(x.data(), "rb")) == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to read from ") + x));
-        gzbuffer(ifp, 1u << 17);
-        kseq_assign(myseq, ifp);
+        SeqFile sf(x);
+        gzbuffer(sf.fp, 1u << 17);
+        kseq_assign(myseq, sf.fp);
         for(int c;(c = kseq_read(myseq)) >= 0;) {
             //DBG_ONLY(std::fprintf(stderr, "Sequence %s of length %zu\n", myseq->name.s, myseq->seq.l););
             ret.sequences_.emplace_back(myseq->seq.s, myseq->seq.l);
@@ -247,7 +265,6 @@ FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2Dist
                 seqs_per_batch = std::min(seqs_per_batch << 1, size_t(0x1000));
             }
         }
-        gzclose(ifp);
     }, path);
     if(!kseqs) kseq_destroy(myseq);
     if(batch_index) resize_fill(opts, ret, batch_index, sketching_data, lastindex, nt, std::string_view(path));
