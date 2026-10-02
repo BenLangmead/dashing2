@@ -41,7 +41,13 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
 
     if(opts.trim_folder_paths()) {
         // The cache file keeps the sketch suffix, so it is never named like an input BED file.
-        cache_path = trim_folder(path) + suffix;
+        // Files with the same name in different directories must not share a cache file,
+        // so the file name is tagged with a hash of its absolute path.
+        char *const abspath = ::realpath(path.data(), nullptr);
+        const std::string key = abspath ? abspath: path;
+        std::free(abspath);
+        char buf[24];
+        cache_path = trim_folder(path) + std::string(buf, std::snprintf(buf, sizeof(buf), ".%016llx", static_cast<unsigned long long>(XXH3_64bits(key.data(), key.size())))) + suffix;
         if(opts.outprefix_.size())
             cache_path = opts.outprefix_ + '/' + cache_path;
     }
