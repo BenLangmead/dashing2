@@ -1,4 +1,5 @@
 #include "lfsketch.h"
+#include <unistd.h>
 
 namespace dashing2 {
 
@@ -44,7 +45,16 @@ LFResult lf2sketch(std::string path, const Dashing2Options &opts) {
     ret.filenames() = {path};
     std::unique_ptr<char[]> gzbuf(new char[GZ_BUFFER_SIZE]);
     gzFile ifp;
-    if((ifp = gzopen(path.data(), "rb")) == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to open input file ") + path));
+    std::FILE *pfp = nullptr;
+    // .xz, .bz2 and .zst files are decompressed through a pipe, as sequence inputs are; zlib reads plain and gzipped files.
+    // zlib gets its own copy of the pipe's descriptor, so gzclose and pclose each close one.
+    const bool matchxz = endswith(path, ".xz"), matchbz = endswith(path, ".bz2"), matchzst = endswith(path, ".zst");
+    if(matchxz || matchbz || matchzst) {
+        const std::string cmd = std::string(matchxz ? "xz": matchbz ? "bzip2": "zstd") + " -dc " + path;
+        if((pfp = ::popen(cmd.data(), "r")) == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to run ") + cmd));
+        ifp = gzdopen(::dup(::fileno(pfp)), "rb");
+    } else ifp = gzopen(path.data(), "rb");
+    if(ifp == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to open input file ") + path));
     char *line;
     if(!(line = gzgets(ifp, gzbuf.get(), GZ_BUFFER_SIZE))) THROW_EXCEPTION(std::runtime_error("Failed to read line from gzFile... is it empty?"));
 
@@ -106,6 +116,7 @@ LFResult lf2sketch(std::string path, const Dashing2Options &opts) {
         }
     }
     gzclose(ifp);
+    if(pfp) ::pclose(pfp);
     ret.registers().resize(nsamples * opts.sketchsize_);
     ret.cardinalities().resize(nsamples);
     for(size_t i = 0;i < nsamples; ++i) {
