@@ -92,7 +92,15 @@ std::string makedest(Dashing2Options &opts, const std::string &path, bool iskmer
     if(opts.canonicalize())
         ret += ".rc_canon";
     if(!opts.sp_.unspaced()) {
-        ret += opts.sp_.to_string();
+        // Long irregular seeds would push the name past the file name length
+        // limit (255 bytes), so they are named by a digest of the seed.
+        const std::string sp = opts.sp_.to_string();
+        if(sp.size() <= 64) {
+            ret += sp;
+        } else {
+            char buf[32];
+            ret.append(buf, std::snprintf(buf, sizeof(buf), ".spacing%016llx", static_cast<unsigned long long>(XXH3_64bits(sp.data(), sp.size()))));
+        }
     }
     if(opts.kmer_result_ <= FULL_SETSKETCH)
         ret = ret + std::string(".sketchsize") + std::to_string(opts.sketchsize_);
