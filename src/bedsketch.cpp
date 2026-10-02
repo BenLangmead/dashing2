@@ -1,4 +1,5 @@
 #include "bedsketch.h"
+#include "fastxsketch.h"
 
 namespace dashing2 {
 
@@ -51,7 +52,8 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
         if(opts.outprefix_.size())
             cache_path = opts.outprefix_ + '/' + cache_path;
     }
-    if(opts.cache_sketches_ && bns::isfile(cache_path)) {
+    // A cache file older than its input is not reused, so an input that was overwritten is sketched again.
+    if(opts.cache_sketches_ && bns::isfile(cache_path) && mtime_ns(path) <= mtime_ns(cache_path)) {
         auto [ifp, ispopen] = xopen(cache_path);
         std::fread(&ret.second, sizeof(ret.second), 1, ifp);
         retvec.clear();

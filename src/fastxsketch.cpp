@@ -232,8 +232,7 @@ INLINE double compute_cardest(const RegT *ptr, const size_t m) {
 
 
 
-// Modification time in nanoseconds, or -1 if the file cannot be stat'ed
-static int64_t mtime_ns(const std::string &path) {
+int64_t mtime_ns(const std::string &path) {
     struct stat st;
     if(::stat(path.data(), &st)) return -1;
 #ifdef __APPLE__
