@@ -136,7 +136,7 @@ void emit_rectangular(const Dashing2DistOptions &opts, const SketchingResult &re
     if(opts.output_format_ == HUMAN_READABLE) {
         auto &of = ofopt.value();
         if(opts.output_kind_ != PHYLIP) {
-            const char *labelstr = asym ? "Asymmetric pairwise": opts.output_kind_ == PANEL ? "Panel (Query/Refernce)": "Symmetric pairwise";
+            const char *labelstr = asym ? "Asymmetric pairwise": opts.output_kind_ == PANEL ? "Panel (Query/Reference)": "Symmetric pairwise";
             of.print("#Dashing2 {} Output\n", labelstr);
             of.print("#Dashing2Options: {}\n", opts.to_string());
             of.print("#Sources");
