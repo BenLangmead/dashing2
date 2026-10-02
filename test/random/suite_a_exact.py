@@ -14,7 +14,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from d2rand import (KMC, MEAS_FLAGS, ROW_LOSS, add_repeats, close, common_args, D2Error, Dashing2,
+from d2rand import (KMC, MEAS_FLAGS, add_repeats, close, common_args, D2Error, Dashing2,
                     decorate, k_band, kmer_counts, measure_value, mutate, pair_truth, random_dna,
                     read_fastx, run_error_known, run_trials, summarize, threshold, TrialResult,
                     write_fastx)
@@ -209,7 +209,7 @@ def main():
         kmc = None
     results, el = run_trials(SUITE, SCRIPT, args, preset["trials"], run_one(args, d2, kmc, preset))
     return summarize("suite A (exact modes vs %s)" % ("KMC3" if kmc else "Python oracle"), results, el,
-                     known=dict([ROW_LOSS]))
+                     known={})
 
 
 if __name__ == "__main__":

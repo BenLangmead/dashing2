@@ -23,7 +23,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from d2rand import (KMC, MEAS_FLAGS, ROW_LOSS, add_homopolymers, add_repeats, aggregate_check,
+from d2rand import (KMC, MEAS_FLAGS, add_homopolymers, add_repeats, aggregate_check,
                     close, common_args, D2Error, Dashing2, decorate, k_band, kmer_counts,
                     kmer_counts_hashed, mean_sd, measure_value, mutate, pair_truth, random_dna,
                     read_fastx, run_error_known, run_trials, sketch_truth, sketch_z, SketchMode,
@@ -259,7 +259,7 @@ def main():
         print("boundary failures are reproduced by rerunning the whole preset: DASHING2=%s python3 %s --seed %d "
               "--preset %s" % (os.path.abspath(args.dashing2), os.path.relpath(os.path.join(
                   os.path.dirname(os.path.abspath(__file__)), SCRIPT)), args.seed, args.preset))
-    return summarize("suite B (no cusp in k)", results, el, nb, known=dict([ROW_LOSS]))
+    return summarize("suite B (no cusp in k)", results, el, nb, known={})
 
 
 if __name__ == "__main__":

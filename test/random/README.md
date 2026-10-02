@@ -303,28 +303,15 @@ Thresholds chosen from this:
 
 ## Known issues in the tested code (expected failures)
 
-These are genuine discrepancies of the fixed build found by the suites.
-Matching failures are printed as `XFAIL[id]` and summarized at the end, and
-`--strict` turns them into failures. Tolerances were not loosened for them.
-
-* `emit-row-loss`: rarely, `dashing2 cmp` exits 0 but prints a matrix with a
-  row missing. The suites verify the printed row names, so this shows up as
-  `run ...: exit 0 but printed rows [...]`. It was seen twice in about 30
-  suite B runs on the fixed build (`-k 249 -J -2 -p 2 --square --containment`,
-  where the last row was missing, and `-k 8 -J -p 1 --square --union-size`,
-  where the middle row was missing) and not in 11000 targeted reruns of
-  those commands on the same inputs, so there is no deterministic
-  reproduction. A plausible cause is the writer thread in src/emitrect.cpp,
-  which calls `datq.empty()` and `datq.front()` without holding `datq_lock`
-  while the comparison loop appends to the deque under it; on a weakly ordered
-  CPU (Apple Silicon) the writer can see a new element before its contents and
-  then pop it after printing nothing.
+None at present. The `XFAIL[id]` mechanism (and `--strict`, which turns expected failures into failures) remains available for registering a newly found discrepancy without loosening tolerances.
 
 ## Fixed issues
 
 The suites found these discrepancies in `test/all-fixes` and registered them
 as expected failures; each is fixed on its own branch (merged into
 `test/all-fixes-2`), and the suites now check the affected cases normally.
+
+* `emit-row-loss` (`fix/emit-queue-lock`): rarely, `dashing2 cmp` exited 0 but printed a matrix with a row missing (seen twice in about 30 suite B runs, never reproduced on demand). The writer thread in src/emitrect.cpp read the output deque without holding its lock while the comparison threads appended to it. It now takes items off the deque under the lock. ThreadSanitizer reported races in that function in 8 of 8 runs before the change and none after. The suites still check every printed row, and a missing row now counts as a failure.
 
 * `ab-pad` (`fix/ab-sketchsize-padding`): the directly sketched compressed
   SetSketch modes (`--fastcmp-bytes`, `--fastcmp-shorts`, `--fastcmp-words`

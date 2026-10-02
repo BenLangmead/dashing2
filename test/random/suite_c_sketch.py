@@ -20,7 +20,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from d2rand import (MEAS_FLAGS, ROW_LOSS, add_repeats, aggregate_check, close, common_args, D2Error,
+from d2rand import (MEAS_FLAGS, add_repeats, aggregate_check, close, common_args, D2Error,
                     Dashing2, decorate, j_from_mash, k_band, kmer_counts, mean_sd, mutate,
                     random_dna, read_fastx, run_error_known, run_trials, sketch_modes, sketch_truth,
                     sketch_z, summarize, TrialResult, write_fastx)
@@ -35,7 +35,7 @@ PRESETS = {
 SIZES = [128, 200, 256, 300, 500, 512, 1000, 1001, 1024, 1500, 2048, 4096]
 # Known issues in the code under test. Failures that match one are reported as
 # XFAIL (or as failures with --strict). README.md has the details.
-KNOWN = dict([ROW_LOSS])
+KNOWN = {}
 # Allowed |mean z| on top of 3 / sqrt(trials). Cardinality estimators carry
 # an O(1/m) upward bias (they invert a sum of m minima), which reaches the
 # union and intersection, and symmetric containment divides by the smaller of
