@@ -639,6 +639,7 @@ static constexpr const char *siglen =
         "\t          --fastcmp-bytes sets a and b to 20 and 1.2, and sets --fastcmp to 1\n"\
         "\t          --fastcmp-shorts sets a and b to .06 and 1.0005, and sets --fastcmp to 2.\n"\
         "\t          --fastcmp-words sets a and b to 19.77 and 1.0000000109723500835 and sets --fastcmp to 4.\n"\
+        "\t          With the default one-permutation sketch, --setsketch-ab and these presets select --full.\n"\
         /*"\t          --fastcmp-nibbles sets a and b to .0005 and 2.71828, and sets --fastcmp to .5\n"*/\
         "\n"\
         "If you instead want to truncate to the bottom-b bits of the signature --\n"\

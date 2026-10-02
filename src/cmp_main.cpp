@@ -290,6 +290,12 @@ int cmp_main(int argc, char **argv) {
     opts.compressed_a_ = compressed_a;
     opts.compressed_b_ = compressed_b;
     opts.set_sketch_compressed();
+    if(opts.sketch_compressed_set && opts.sspace_ == SPACE_SET && opts.kmer_result_ == ONE_PERM) {
+        // --setsketch-ab and the --fastcmp-bytes/-shorts/-words presets build compressed
+        // SetSketches, which exist only as full SetSketches.
+        std::fprintf(stderr, "Note: --setsketch-ab and --fastcmp-bytes/-shorts/-words use the full SetSketch; enabling --full.\n");
+        opts.kmer_result_ = FULL_SETSKETCH;
+    }
     if(hpcompress) {
         if(!opts.homopolymer_compress_minimizers_) THROW_EXCEPTION(std::runtime_error("Failed to hpcompress minimizers"));
     }
