@@ -5,6 +5,21 @@
 namespace dashing2 {
 extern size_t MEMSIGTHRESH;
 
+// .xz, .bz2 and .zst inputs are read through a decompression pipe, which starts even when the
+// file is missing, so every sequence file is checked before sketching.
+static void require_readable_inputs(const std::vector<std::string> &paths) {
+    for(const auto &line: paths) {
+        for_each_substr([](const std::string &path) {
+            if(std::FILE *fp = std::fopen(path.data(), "rb")) {
+                std::fclose(fp);
+                return;
+            }
+            std::fprintf(stderr, "Could not open input file %s: %s\n", path.data(), std::strerror(errno));
+            std::exit(EXIT_FAILURE);
+        }, line);
+    }
+}
+
 INLINE size_t nbytes_from_line(const std::string &line) {
     size_t ret = 0;
     for_each_substr([&ret](const std::string &s) {ret += bns::filesize(s.data());}, line);
@@ -15,6 +30,7 @@ SketchingResult &sketch_core(SketchingResult &result, Dashing2DistOptions &opts,
     if(opts.kmer_result() == FULL_MMER_SEQUENCE && outfile.empty()) {
         THROW_EXCEPTION(std::runtime_error("outfile must be specified for --seq mode."));
     }
+    if(opts.dtype_ == DataType::FASTX) require_readable_inputs(paths);
     result.signatures_.memthreshold(MEMSIGTHRESH);
     result.kmers_.memthreshold(MEMSIGTHRESH);
     const size_t npaths = paths.size();
