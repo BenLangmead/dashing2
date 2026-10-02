@@ -611,7 +611,7 @@ static constexpr const char *siglen =
         "All of these are powered by the use of an LSH table built over the sketches, with the exception of exact mode (--countdict or --set), which use an LSH index built over their bottom-k hashes.\n"\
         "For details on LSH table parameters, see `LSH Options` below.\n"\
         "Top-K (K-Nearest-Neighbor) mode -- \n"\
-        "--topk/--top-k <arg>\tMaximum number of nearest neighbors to list. If <arg> is N - 1 or greater, every other item is listed for each item.\n"\
+        "--topk/--top-k <arg>\tMaximum number of nearest neighbors to list. If <arg> is N - 1 or greater, every other item is listed for each item, except items that share no sampled k-mers (no LSH key) with it, which are never candidates.\n"\
         "\nThresholded Mode -- \n"\
         "--similarity-threshold <arg>\tMinimum fraction similarity for inclusion.\n\tIf this is enabled, only pairwise similarities over <arg> will be emitted.\n"\
         "\tFor distance measures (e.g., --mash-distance), <arg> is a maximum distance instead: only pairs at most <arg> apart are emitted.\n"\
