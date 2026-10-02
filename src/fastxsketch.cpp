@@ -267,8 +267,10 @@ FastxSketchingResult &fastx2sketch(FastxSketchingResult &ret, Dashing2Options &o
             std::exit(1);
         }
         const size_t offset = sizeof(nitems) * 2 + sizeof(double) * nitems;
-        ::truncate(outpath.data(), offset);
-        ret.signatures_.assign(outpath, offset);
+        // A minimizer-sequence file stores k, w and the alphabet (three 32-bit words) after the count instead of the sketch size
+        const size_t dataoffset = opts.kmer_result_ == FULL_MMER_SEQUENCE ? offset + sizeof(uint32_t): offset;
+        ::truncate(outpath.data(), dataoffset);
+        ret.signatures_.assign(outpath, dataoffset);
         if(opts.save_kmers_) {
             kmeroutpath = outpath + ".kmer64";
             kmernamesoutpath = kmeroutpath + ".names.txt";
@@ -665,6 +667,40 @@ do {\
                 std::copy(counts, counts + ss, &ret.kmercounts_[mss]);
         } else THROW_EXCEPTION(std::runtime_error("Unexpected: Not FULL_MMER_SEQUENCE, FULL_MMER_SET, ONE_PERM, FULL_SETSKETCH, SPACE_MULTISET, or SPACE_PSET"));
     } // parallel paths loop
+    if(opts.kmer_result_ == FULL_MMER_SEQUENCE && outpath.size() && outpath != "-" && outpath != "/dev/stdout") {
+        // The stacked file holds the minimizer sequence of each input in input order, as raw k-mer codes
+        // (as --parse-by-seq writes them), with each input's length counted in 64-bit words.
+        std::vector<size_t> nwords(nitems);
+        for(size_t i = 0; i < nitems; ++i) {
+            const ssize_t fsz = bns::filesize(ret.destination_files_[i].data());
+            if(fsz < 0) THROW_EXCEPTION(std::runtime_error("Failed to read minimizer sequence from "s + ret.destination_files_[i]));
+            nwords[i] = fsz / sizeof(uint64_t);
+        }
+        const size_t totalwords = std::accumulate(nwords.begin(), nwords.end(), size_t(0));
+        ret.signatures_.resize((totalwords * sizeof(uint64_t) + sizeof(RegT) - 1) / sizeof(RegT));
+        uint8_t *dest = reinterpret_cast<uint8_t *>(ret.signatures_.data());
+        std::vector<uint64_t> buf;
+        for(size_t i = 0; i < nitems; ++i) {
+            buf.resize(nwords[i]);
+            std::FILE *ifp = bfopen(ret.destination_files_[i].data(), "rb");
+            if(!ifp || std::fread(buf.data(), sizeof(uint64_t), buf.size(), ifp) != buf.size())
+                THROW_EXCEPTION(std::runtime_error("Failed to read minimizer sequence from "s + ret.destination_files_[i]));
+            std::fclose(ifp);
+            if(opts.use128()) {
+                for(size_t j = 0; j + 1 < buf.size(); j += 2) {
+                    u128_t x;
+                    std::memcpy(&x, &buf[j], sizeof(x));
+                    x = invmaskfn(x);
+                    std::memcpy(&buf[j], &x, sizeof(x));
+                }
+            } else {
+                for(auto &x: buf) x = invmaskfn(x);
+            }
+            std::memcpy(dest, buf.data(), buf.size() * sizeof(uint64_t));
+            dest += buf.size() * sizeof(uint64_t);
+            ret.cardinalities_[i] = nwords[i];
+        }
+    }
     ret.names_ = paths;
     return ret;
 }
