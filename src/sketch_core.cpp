@@ -31,18 +31,17 @@ SketchingResult &sketch_core(SketchingResult &result, Dashing2DistOptions &opts,
             fastx2sketch(result, opts, paths, outfile);
         }
     } else if(opts.dtype_ == DataType::LEAFCUTTER) {
-        if(outfile.empty()) THROW_EXCEPTION(std::runtime_error("Outfile required for LeafCutter input."));
         auto res = lf2sketch(paths, opts);
         result.names_ = std::move(res.sample_names());
         result.nperfile_.resize(res.nsamples_per_file().size());
         std::copy(res.nsamples_per_file().begin(), res.nsamples_per_file().end(), result.nperfile_.begin());
-        std::FILE *of = bfopen(outfile.data(), "wb");
-        uint64_t ns = result.names_.size();
-        checked_fwrite(&ns, sizeof(ns), 1, of);
-        ns = opts.sketchsize_;
-        checked_fwrite(&ns, sizeof(ns), 1, of);
-        std::fclose(of);
-        result.signatures_.assign(outfile);
+        result.cardinalities_.assign(res.cardinalities().begin(), res.cardinalities().end());
+        if(outfile.size() && outfile != "-" && outfile != "/dev/stdout") {
+            // The registers follow the header (entity count, sketch size and cardinalities), which is written below
+            const size_t offset = sizeof(uint64_t) * 2 + sizeof(double) * result.names_.size();
+            ::truncate(outfile.data(), offset);
+            result.signatures_.assign(outfile, offset);
+        }
         result.signatures_.resize(res.registers().size());
         std::copy(res.registers().begin(), res.registers().end(), result.signatures_.begin());
     } else if(opts.dtype_ == DataType::BED || opts.dtype_ == DataType::BIGWIG) {
