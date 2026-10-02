@@ -775,8 +775,9 @@ def fam_kmers(ctx, rng, preset):
         for i, row in enumerate(db["rows"]):
             bad = [x for x in row if x not in idc[i]]
             empty = set(bad)
-            # One-permutation sketches of inputs with fewer k-mers than buckets keep one placeholder id in empty buckets.
-            okbad = not bad or (mname == "oph" and len(empty) == 1 and len(idc[i]) < 8 * S) or (not idc[i] and len(empty) == 1)
+            # One-permutation sketches keep one placeholder id in empty buckets. With n distinct k-mers and S buckets
+            # the expected number of empty buckets is about S * exp(-n / S), which is negligible only above about 20 * S.
+            okbad = not bad or (mname == "oph" and len(empty) == 1 and len(idc[i]) < 20 * S) or (not idc[i] and len(empty) == 1)
             res.check(okbad, "kmerdb-ids-%s[%d]" % (mname, i), "%d of %d sampled ids are not k-mers of the input (%s)" % (
                 len(bad), S, sorted(empty)[:3]), "bmh-stale-ids" if mname == "bmh" and not idc[i] else None)
             cbad = [(x, cv[i * S + j], idc[i][x]) for j, x in enumerate(row) if x in idc[i] and i * S + j < len(cv)
