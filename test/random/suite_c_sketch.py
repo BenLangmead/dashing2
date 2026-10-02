@@ -215,8 +215,10 @@ def aggregates(results, args, verbose):
     for (mode, key), per in sorted(groups.items()):
         zs = [z for v in per.values() for z in v]
         bykey.setdefault(key, {}).update({(mode, t): v for t, v in per.items()})
+        # One bias check per mode and measure (well over 100 groups per run) needs a stricter
+        # bound than the pooled check below to keep chance failures rare.
         ok, msg = aggregate_check(zs, "%-15s %-12s" % (mode, key), BIAS_ALLOW.get(key, DEFAULT_ALLOW),
-                                  n_eff=len(per))
+                                  n_eff=len(per), z_crit=4.0)
         if not ok:
             nfail += 1
         lines.append((ok, msg))

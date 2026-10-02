@@ -293,7 +293,7 @@ Thresholds chosen from this:
 * per estimate |z| <= 6 (`--zmax`): the largest |z| in 5400 calibration
   trials (about 377000 checks) was 5.4, and under a normal model a 6-sigma
   excursion has probability 2e-9 per check;
-* bias: |mean z| <= 3/sqrt(trials) + allowance, allowance 0.1, raised to
+* bias: |mean z| <= 3/sqrt(trials) + allowance for the pooled groups (4/sqrt(trials) for the per-mode groups, of which a run has well over a hundred, so that chance failures stay rare), allowance 0.1, raised to
   0.15 for cardinality, union and intersection (cardinality estimators that
   invert a sum of m minima carry an O(1/m) upward bias) and to 0.25 for
   symmetric containment (it divides by the smaller of two noisy

@@ -985,13 +985,15 @@ def sketch_z(mode, meas, est, J, nA, nB, nI, m, k, base=None, diag=False):
     return (est - truth) / se, regular
 
 
-def aggregate_check(zs, label, bias_allow=0.1, sd_range=(0.5, 1.6), min_n=8, n_eff=None, sd_min_units=30):
+def aggregate_check(zs, label, bias_allow=0.1, sd_range=(0.5, 1.6), min_n=8, n_eff=None, sd_min_units=30, z_crit=3.0):
     """Bias and spread checks on a list of z-scores; returns (ok, message).
 
     n_eff is the number of independent units (trials) behind zs. The bias
-    bound is 3 / sqrt(n_eff) + bias_allow; this stays conservative when the
-    z-scores of one trial are correlated, because the mean z of a trial has
-    variance at most 1. The spread check needs at least sd_min_units units:
+    bound is z_crit / sqrt(n_eff) + bias_allow, with z_crit 3 by default;
+    callers that check many groups at once, such as one per sketch mode, pass
+    a larger z_crit so that chance excursions stay rare across all groups.
+    The bound stays conservative when the z-scores of one trial are
+    correlated, because the mean z of a trial has variance at most 1. The spread check needs at least sd_min_units units:
     with fewer, a single trial's correlated z-scores dominate the SD.
     """
     n = len(zs)
@@ -999,7 +1001,7 @@ def aggregate_check(zs, label, bias_allow=0.1, sd_range=(0.5, 1.6), min_n=8, n_e
         return True, "%s: n=%d (too few for aggregate checks)" % (label, n)
     mu, sd = mean_sd(zs)
     ne = n_eff or n
-    bound = 3.0 / math.sqrt(ne) + bias_allow
+    bound = z_crit / math.sqrt(ne) + bias_allow
     ok = abs(mu) <= bound
     if ne >= sd_min_units:
         ok = ok and sd_range[0] <= sd <= sd_range[1]
