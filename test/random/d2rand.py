@@ -348,6 +348,7 @@ FIXED_IDS = frozenset([
     "symcontain-as-distance", "binary-tail-32k", "lsh-self-candidate",            # suite E
     "byseq-downsample", "byseq-compressed",                                        # suite D
     "countmin-exact-modes", "countsketch-header-newline", "readme-edit-distance-crash",  # suite F
+    "edit-distance-nondeterministic",                                              # suite F
 ])
 
 

@@ -359,7 +359,7 @@ The wider suites D, E and F found further issues; these are fixed in the tested 
 * `byseq-downsample` (`fix/byseq-downsample`): `--parse-by-seq` ignored `--downsample`.
 * `byseq-compressed` (`fix/byseq-compressed`): `--parse-by-seq` read `.bz2`, `.xz` and `.zst` inputs as raw bytes.
 
-`edit-distance-nondeterministic` remains an expected failure here. Its fix (`fix/edit-distance-nondeterministic`) changes the sketch library inside bonsai and is not yet part of the tested branch.
+* `edit-distance-nondeterministic` (`fix/edit-distance-nondeterministic`, with bonsai and sketch branches `fix/omh-finalize-index-type`): `--edit-distance` (OrderMinHash) gave different values for the same pair from run to run, because `OMHasher::finalize` in the sketch library stored sequence positions in the element type (one byte for `const char*`), so positions of 128 or more wrapped and were read from before the record.
 
 ## Runtimes
 

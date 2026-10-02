@@ -305,9 +305,6 @@ DOC_BUGS = {
                            "--parse-by-seq spills to $TMPDIR, but inputs under 2e9 bases are always kept in RAM.",
     "readme-use7-no-output": "README Use 7: 'dashing2 sketch ... --set --topk 25 -o input_sequence_set.topk.tsv' writes "
                              "the stacked sketches (binary) to the .tsv and no top-k table at all; --cmpout is needed.",
-    "edit-distance-nondeterministic": "--edit-distance (OrderMinHash, documented only in README.md) gives different "
-                                      "similarities from run to run for the same input (0.43, 0.125, 0.497 for one "
-                                      "pair at -p 1 and -p 4).",
     "readme-canon-default": "README: 'Canonicalization is off by default.'; DNA k-mers are canonical by default "
                             "(help item 6, header ';canon'): a sequence and its reverse complement give similarity 1.",
     "wsketch-U-1d": "wsketch help: '-U: Read 32-bit data weights'; with one or two paths the weights are read as "
