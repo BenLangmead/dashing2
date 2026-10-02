@@ -347,8 +347,18 @@ FIXED_IDS = frozenset([
     "emit-row-loss",
     "symcontain-as-distance", "binary-tail-32k", "lsh-self-candidate",            # suite E
     "byseq-downsample", "byseq-compressed",                                        # suite D
+    "uncanon-window-polyT", "spaced-window-invalid", "byseq-seq-stale-window",     # suite D
+    "filterset-windowed", "spacing-long-filename", "byseq-exact-card",             # suite D
+    "stacked-kmercounts-f32", "full-mincount-counts", "bmh-stale-ids",             # suite E
+    "seq-o-file-mode", "wsketch-tw-suffix",                                        # suite E
     "countmin-exact-modes", "countsketch-header-newline", "readme-edit-distance-crash",  # suite F
-    "edit-distance-nondeterministic",                                              # suite F
+    "edit-distance-nondeterministic", "wsketch-U-1d", "wsketch-tw-garbage",        # suite F
+    "help-k-limits", "default-not-phylip", "header-sketchtype-label", "topk-large-k",  # suite F
+    "sparse-binary-format", "greedy-binary-ids", "presketched-mash-k",             # suite F
+    "save-kmers-names-path", "save-kmers-header-size", "save-kmers-no-file",       # suite F
+    "seq-header", "fastcmp-presets-need-full", "seqs-in-ram-ignored",              # suite F
+    "readme-use7-no-output", "readme-canon-default", "wsketch-example-order",      # suite F
+    "wsketch-example-kmerset-header", "short-opts-differ", "undocumented-options",  # suite F
 ])
 
 
@@ -815,8 +825,21 @@ def mean_sd(xs):
 # compare equal after compression (0 for full registers, 2^-bits for b-bit
 # signatures, about ln(b) / 4 for registers log-compressed with base b) and
 # kappa is the relative standard error constant of the cardinality estimator
-# (0 when the cardinality is an exact total, as for -B and --prob).
+# (0 when the cardinality is an exact total, as for -B and --prob). The set
+# sketches (OPH, FullSetSketch and their compressed forms) count a set of at
+# most EXACT_CARD_FACTOR x m distinct sketch ids exactly, so kappa is 0 for
+# such a set as well (src/fastxsketch.h SmallSetCounter); the A and B terms
+# then drop out and only the Jaccard term is left.
 # Standard errors of the derived measures follow by the delta method.
+
+EXACT_CARD_FACTOR = 10
+
+
+def card_kappa(mode, n, m):
+    """kappa for a set of n distinct items sketched with m registers: 0 when dashing2 counts it exactly."""
+    if mode.kind == "set" and n <= EXACT_CARD_FACTOR * m:
+        return 0.0
+    return mode.kappa
 
 def collision_prob(compress, bits=None, base=None):
     if compress == "bbit":
@@ -826,19 +849,19 @@ def collision_prob(compress, bits=None, base=None):
     return 0.0
 
 
-def jcov(J, nA, nB, nI, m, kappa, c):
-    """Covariance matrix of (J_hat, A_hat, B_hat) under the model above."""
+def jcov(J, nA, nB, nI, m, kA, kB, c):
+    """Covariance matrix of (J_hat, A_hat, B_hat) under the model above (kA, kB: kappa of A and B)."""
     nU = nA + nB - nI
     p = J + (1 - J) * c
     vJ = p * (1 - p) / (m * (1 - c) ** 2)
     # The "+ 1" is one element of resolution: for sets much smaller than m the
     # estimators count occupied registers, and their error is a whole number
     # of register collisions rather than a continuous quantity.
-    vA = kappa ** 2 * (nA * nA / m + 1)
-    vB = kappa ** 2 * (nB * nB / m + 1)
-    cAB = kappa ** 2 * J * nA * nB / m
-    cJA = kappa * J * nA * (nB - nI) / (nU * m) if nU else 0.0
-    cJB = kappa * J * nB * (nA - nI) / (nU * m) if nU else 0.0
+    vA = kA ** 2 * (nA * nA / m + 1)
+    vB = kB ** 2 * (nB * nB / m + 1)
+    cAB = kA * kB * J * nA * nB / m
+    cJA = kA * J * nA * (nB - nI) / (nU * m) if nU else 0.0
+    cJB = kB * J * nB * (nA - nI) / (nU * m) if nU else 0.0
     return [[vJ, cJA, cJB], [cJA, vA, cAB], [cJB, cAB, vB]]
 
 
@@ -858,9 +881,9 @@ def derived(meas, J, A, B):
     raise ValueError(meas)
 
 
-def delta_se(meas, J, nA, nB, nI, m, kappa, c):
+def delta_se(meas, J, nA, nB, nI, m, kA, kB, c):
     """Delta-method standard error of a derived measure at the true point."""
-    cov = jcov(J, nA, nB, nI, m, kappa, c)
+    cov = jcov(J, nA, nB, nI, m, kA, kB, c)
     x = [J, float(nA), float(nB)]
     grad = []
     for i in range(3):
@@ -957,8 +980,9 @@ def sketch_z(mode, meas, est, J, nA, nB, nI, m, k, base=None, diag=False):
     if diag:
         if nA == 0:
             return (0.0 if abs(est) < 1e-9 else float("inf")), False
-        if mode.kind != "set":
-            # Exact total counts: z only reflects printing precision, so keep it out of aggregates.
+        if card_kappa(mode, nA, m) == 0:
+            # Exact total counts (-B, --prob) and exactly counted small sets: z only reflects printing
+            # precision, so keep it out of aggregates.
             return (est - nA) / (SIGMA_FLOOR_REL * max(1.0, nA)), False
         se = mode.kappa * math.sqrt(nA * nA / m + 1) + SIGMA_FLOOR_REL * nA
         return (est - nA) / se, True
@@ -975,7 +999,7 @@ def sketch_z(mode, meas, est, J, nA, nB, nI, m, k, base=None, diag=False):
         sef = 1.0 / m
     else:
         truth = derived(meas, J, nA, nB)
-        se1 = delta_se(meas, J, nA, nB, nI, m, mode.kappa, c)
+        se1 = delta_se(meas, J, nA, nB, nI, m, card_kappa(mode, nA, m), card_kappa(mode, nB, m), c)
         # One register's worth of resolution on the J scale, a continuity
         # correction for the discrete count of equal registers near J = 0 or 1.
         sef = abs(derived(meas, min(1.0, J + 1.0 / m), nA, nB) - truth)

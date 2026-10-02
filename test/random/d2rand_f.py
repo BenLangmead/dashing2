@@ -18,6 +18,7 @@ from d2rand import D2Error, parse_matrix, revcomp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "..", "src")
+README = os.path.join(HERE, "..", "..", "README.md")
 
 AMINO20 = "ACDEFGHIKLMNPQRSTVWY"
 
@@ -248,6 +249,15 @@ def parser_long_options(src=SRC):
     return names
 
 
+def readme_text(path=README):
+    """README.md of the source tree, or None if it is absent."""
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 def help_long_options(text):
     """Long options named anywhere in a usage text (tokens of the form --name)."""
     return set(re.findall(r"--([A-Za-z0-9][A-Za-z0-9-]*)", text))
@@ -255,74 +265,11 @@ def help_long_options(text):
 
 # ---------------------------------------------------------------------------
 # Documentation bugs found by this suite, by id. Each entry: what the text says,
-# what the binary does (with the numbers seen on the fixed build) and the
-# likely cause. Checks that fail on one of these report XFAIL[id]; --strict
-# turns them into failures.
+# what the binary does and the likely cause. Checks that fail on one of these
+# report XFAIL[id]; --strict turns them into failures. Every issue this suite
+# found is fixed in the tested code (the ids are in d2rand.FIXED_IDS, and
+# README.md lists them), so the table is empty.
 
-DOC_BUGS = {
-    "help-k-limits": "help: 'If k is greater than this limit (31 for DNA, ... 22 for --protein8 ...)'; the direct "
-                     "limits and defaults are 32 for DNA and 21 for --protein8 (bonsai rhtraits.h nper64), and "
-                     "--protein14 (16) is not listed (options.h:484). Previously noted in bughunt inputs/findings.md.",
-    "default-not-phylip": "help: '1. Upper Triangular PHYLIP (default)'; the default output is the tab-separated "
-                          "'#Dashing2 Symmetric pairwise' matrix; PHYLIP comes only from the undocumented --phylip "
-                          "(options.h:588, sketch_main.cpp:41, emitrect.cpp:139).",
-    "header-sketchtype-label": "the long forms --multiset/--bagminhash/--bmh/--prob/--pminhash/--probminhash are "
-                               "LO_FLAGs that set only sketch_space, so cmp's #Dashing2Options header says "
-                               "sketchtype:onepermsetsketch while the values are BagMinHash/ProbMinHash ones (-B/-P "
-                               "print the right label); -J prints sketchtype:fullyunknown (options.h:88-114, "
-                               "d2.cpp:20-25).",
-    "topk-large-k": "help: '--topk <arg> ... If <arg> is greater than N - 1, pairwise distances are instead "
-                    "emitted.'; a neighbour list with all N-1 neighbours is printed instead. Previously noted in "
-                    "bughunt workflow/findings.md.",
-    "sparse-binary-format": "help: 'For top-k filtered, this emits a matrix of min(k, |N|) x |N| of IDs and "
-                            "distances' and CSR '64-bit indptr, 32-bit indices, 32-bit floats'; both top-k and "
-                            "threshold output are CSR preceded by an undocumented 16-byte [nrows, nnz] header. "
-                            "Previously noted in bughunt workflow/findings.md.",
-    "greedy-binary-ids": "help: '--greedy ... machine-readable ... followed by nsets 64-bit integers'; member ids "
-                         "are 32-bit. Previously noted in bughunt workflow/findings.md.",
-    "presketched-mash-k": "cmp --presketched loads a stacked file that does not record k, and --mash-distance then "
-                          "uses the default k (32) unless -k is repeated; the help ('use this flag and pass in a "
-                          "single positional argument') does not say so: k=15 sketches give 0.0024958584 instead of "
-                          "0.005324498 (cmp_main.cpp:265, 386).",
-    "save-kmers-names-path": "help: 'names will be written to <arg>.kmer.names.txt'; they go to "
-                             "<arg>.kmer64.names.txt. Previously noted in bughunt workflow/findings.md.",
-    "save-kmers-header-size": "help: '-s/--save-kmers ... This has a 16-byte header'; the header is 24 bytes (alphabet, "
-                              "sketch size, k, w, then a 64-bit seed), as contain_main.cpp:192 reads it.",
-    "save-kmers-no-file": "help: '-s/--save-kmers: ... puts the k-mers saved into .kmer files' and '-N ... into "
-                          ".kmercounts.f64 files'; for the default one-permutation sketch and --full no per-input "
-                          "file is written (with or without --cache) unless -o is given, while -B/--prob always "
-                          "write them (fastxsketch.cpp:626-629 keep ids only for the stacked file).",
-    "seq-header": "help (-G/--seq): 'header: [uint64_t nitems, uint32_t k, uint32_t w]'; the file has a fourth "
-                  "field, a uint32 alphabet/flags word, so the header is 20 bytes (printminmain.cpp:31-41).",
-    "fastcmp-presets-need-full": "help: '--setsketch-ab ... only supported for the SetSketch' and calls the default "
-                                 "'SetSketch (one-permutation)'; --fastcmp-bytes/-shorts/-words and --setsketch-ab "
-                                 "abort ('Sketch compressed is only available for FullSetSketch') unless --full is "
-                                 "also given (cmp_main.h:117).",
-    "seqs-in-ram-ignored": "--seqs-in-ram is accepted but has no effect: fastxsketch.h:19 declares "
-                           "`static bool seqs_in_memory` in a header, so options.h:123 sets the copy in "
-                           "sketch_main.cpp/cmp_main.cpp while fastxsketchbyseq.cpp:173 reads its own copy (the "
-                           "debug log still says it is swapping to RAM because the flag is off). The help also says "
-                           "--parse-by-seq spills to $TMPDIR, but inputs under 2e9 bases are always kept in RAM.",
-    "readme-use7-no-output": "README Use 7: 'dashing2 sketch ... --set --topk 25 -o input_sequence_set.topk.tsv' writes "
-                             "the stacked sketches (binary) to the .tsv and no top-k table at all; --cmpout is needed.",
-    "readme-canon-default": "README: 'Canonicalization is off by default.'; DNA k-mers are canonical by default "
-                            "(help item 6, header ';canon'): a sequence and its reverse complement give similarity 1.",
-    "wsketch-U-1d": "wsketch help: '-U: Read 32-bit data weights'; with one or two paths the weights are read as "
-                    "float64 (total weight 0 instead of 4952 for 200 weights), because wmh_from_file has no branch "
-                    "for -U (wsketch.cpp:202-208). Listed as a follow-up in the fix plan; still reproduces.",
-    "wsketch-tw-garbage": "wsketch writes '<prefix>.sampled.tw.txt' ending in one garbage character instead of "
-                          "';d;L': `';' + 'd' + ';' + 'L'` adds chars (wsketch.cpp:365).",
-    "wsketch-example-order": "wsketch help examples 3-5 pass the data/weights file before the indices "
-                             "('... g1.fastq.k31.data64 fq.fastq.k31.indices64 ...', '... - indices64 indptr64'); "
-                             "the usage line and code take indices first, so the '-' example aborts (mmap of '-') "
-                             "and the others silently sketch the weights as ids (wsketch.cpp:288-292).",
-    "wsketch-example-kmerset-header": "wsketch help examples 1-2 sketch g1.fastq.k31.kmerset64 directly, but .kmerset64 "
-                                      "files start with an 8-byte cardinality, which wsketch reads as one more id "
-                                      "(2973 ids for 2972 k-mers; with counts the vectors differ in length).",
-    "short-opts-differ": "-C (no-canon) is in sketch's getopt string but not cmp's, so `cmp -C` prints the usage "
-                         "and exits (sketch_main.cpp:63 vs cmp_main.cpp:258); neither documents it.",
-    "undocumented-options": "options accepted by the sketch/cmp parser (options.h SHARED_OPTS) that the usage text "
-                            "never names.",
-}
+DOC_BUGS = {}
 
 KNOWN = {k: v.split(";")[0][:110] for k, v in DOC_BUGS.items()}

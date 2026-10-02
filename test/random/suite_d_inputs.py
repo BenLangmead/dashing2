@@ -45,31 +45,10 @@ PRESETS = {
     "thorough": dict(per_family=100, maxlen=6000),
 }
 
-KNOWN = {
-    "uncanon-window-polyT": "with --no-canon (or --spacing) and k filling the k-mer word (k = 32, or 64 with -2), "
-                            "a window whose minimizer is poly-T emits nothing: the all-ones encoding doubles as the "
-                            "'window not full' marker (bonsai encoder.h for_each_uncanon_unspaced_windowed, "
-                            "for_each_uncanon_spaced; qmap.h next_value)",
-    "spaced-window-invalid": "--spacing with -w: k-mers that overlap an invalid character enter the window as the "
-                             "all-ones marker with a real score, so windows count positions rather than valid k-mers "
-                             "and a window won by the marker emits nothing; records shorter than the window emit "
-                             "nothing (bonsai encoder.h next_minimizer and for_each_uncanon_spaced have no validity "
-                             "check and no partial-window tail)",
-    "byseq-exact-card": "--parse-by-seq with OPH or --full replaces the estimated cardinality by an exact count when "
-                        "it is below 10 x S (src/fastxsketchbyseq.cpp, 'exact counting fall-back'), so intersection, "
-                        "union, containment and symmetric containment differ from the same record sketched as a file",
-    "filterset-windowed": "with -w, --filterset removes only the filter file's own minimizers rather than every k-mer "
-                          "in it, so input minimizers that occur in the filter file as non-minimizers are kept "
-                          "(src/d2.cpp Dashing2Options::filterset builds the set with the windowed encoder)",
-    "spacing-long-filename": "--spacing with irregular gaps and large k: exact modes (--set, -J, -G) and --cache "
-                             "abort with 'Failed to open' because the output file name spells out the whole seed "
-                             "and exceeds the 255-byte file name limit (src/fastxmerge.cpp:94-95 makedest appends "
-                             "the spacing string to the name)",
-    "byseq-seq-stale-window": "sketch -G --parse-by-seq on the rolling path without canonicalization: a record "
-                              "shorter than k gets the previous record's last window minimum (RollingHasher::"
-                              "for_each_uncanon returns before resetting its window, and the by-seq fallback for "
-                              "short records reads that stale window; src/fastxsketchbyseq.cpp, bonsai encoder.h)",
-}
+# Known issues in the tested code. A failing check tagged with one of these ids is
+# an expected failure (XFAIL) unless --strict is given. See README.md, suite D. The
+# issues this suite found are fixed; their ids are in d2rand.FIXED_IDS.
+KNOWN = {}
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ Usage: DASHING2=/path/to/dashing2 python3 test/random/suite_f_docs.py [--preset 
 import math
 import os
 import re
+import shlex
 import struct
 import sys
 
@@ -22,8 +23,8 @@ from d2rand import (D2Error, Dashing2, close, common_args, kmer_counts, measure_
                     random_dna, read_fastx, revcomp, run_trials, summarize, TrialResult, write_fastx)
 from d2rand_f import (KNOWN, canonical_kmer_sequence, condensed, dedupe_runs, floats, header_options,
                       help_long_options, kmer_set, matrix, mutate_protein, parse_contain, parse_greedy,
-                      parse_lists, parser_long_options, protein_kmers, random_protein, read_stacked, run,
-                      same_matrix, spaced_kmers, spacing_offsets)
+                      parse_lists, parser_long_options, protein_kmers, random_protein, read_stacked, readme_text,
+                      run, same_matrix, spaced_kmers, spacing_offsets)
 
 SUITE = "f"
 SCRIPT = "suite_f_docs.py"
@@ -110,6 +111,14 @@ class Ctx:
     def path(self, name):
         return os.path.join(self.wd, name)
 
+    def usage(self, sub="cmp"):
+        """The usage message of a subcommand (printed on stderr)."""
+        return self.run([sub, "-h"]).err
+
+    def is64(self):
+        """True for the dashing2-64 build, whose ids in binary outputs are 64-bit."""
+        return os.path.basename(self.d2.binary).startswith("dashing2-64")
+
 
 def ret_desc(res, s):
     res.desc = res.desc + " " + s
@@ -118,7 +127,10 @@ def ret_desc(res, s):
 # ---------------------------------------------------------------------------
 # Checks. Each takes a Ctx and records checks on ctx.res.
 
-DOCUMENTED_SHORT = ["k", "w", "2", "m", "F", "Q", "S", "L", "s", "N", "o", "B", "H", "J", "G", "p"]
+DOCUMENTED_SHORT = ["k", "w", "2", "m", "F", "Q", "S", "L", "s", "N", "o", "B", "H", "J", "G", "p", "C", "W", "Z",
+                    "P", "c", "f", "v"]
+# Options the parser accepts that the usage text leaves out on purpose, because they are partial or internal.
+INTERNAL_OPTIONS = {"by-chrom", "exact-kmer-dist", "pairlist", "sig-ram-limit"}
 
 
 def chk_help(c):
@@ -144,7 +156,8 @@ def chk_help(c):
     arg = {"k": ["-k", "15"], "w": ["-k", "15", "-w", "20"], "2": ["-2"], "m": ["-m", "1"], "F": ["-F", "L.txt"],
            "Q": ["-Q", "L.txt"], "S": ["-S", "64"], "L": ["-L", "6"], "s": ["-s", "-o", "o_s"],
            "N": ["-N", "-o", "o_n"], "o": ["-o", "o_o"], "B": ["-B"], "H": ["-H"], "J": ["-J"],
-           "G": ["-G", "-o", "o_g"], "p": ["-p", "2"]}
+           "G": ["-G", "-o", "o_g"], "p": ["-p", "2"], "C": ["-C"], "W": ["-W"], "Z": ["-Z"], "P": ["-P"],
+           "c": ["-c", "16"], "f": ["-f", "x"], "v": ["-v"]}
     for opt in DOCUMENTED_SHORT:
         c.ok(re.search(r"(^|[\s(])-%s[/:\s]" % re.escape(opt), help_text, re.M), "short-documented[-%s]" % opt)
         for sub in ("sketch", "cmp"):
@@ -162,9 +175,11 @@ def chk_help(c):
         named = help_long_options(help_text) | help_long_options(texts[("cmp", "-h")])
         unknown = sorted(named - parser - {"presketched"})
         c.ok(not unknown, "help-options-exist", "help names options the parser lacks: %s" % unknown)
-        undoc = sorted(parser - named - {"help"})
+        undoc = sorted(parser - named - {"help"} - INTERNAL_OPTIONS)
         c.ok(not undoc, "undocumented-options", "parser accepts but help never names: %s" % " ".join(
             "--" + x for x in undoc), known="undocumented-options")
+        c.ok(INTERNAL_OPTIONS <= parser, "internal-options-exist",
+             "not in the parser: %s" % sorted(INTERNAL_OPTIONS - parser))
     # Short options behave the same in sketch and cmp.
     rs = c.run(["sketch", "-C", "-k", "15", "--cmpout", "-"] + files)
     rc = c.run(["cmp", "-C", "-k", "15"] + files)
@@ -187,17 +202,53 @@ def chk_defaults(c):
         c.ok(m0.kind == "sym", "default-output-symmetric", m0.kind)
     h2 = header_options(c.run(["cmp", "-2"] + files).out)
     c.ok(h2.get("k") == "64", "default-k-long", "-2 header k=%s" % h2.get("k"))
-    # "If k is greater than this limit (31 for DNA, 14 for --protein, 22 for --protein8, 24 for --protein6)":
-    # the default k is that limit (item 2: "Maximum expressible in uint64_t").
+    help_text = c.usage()
+    # "If k is greater than this limit (32 for DNA, 14 for --protein, ...; with -2/--long-kmers: 64, 29, ...)":
+    # the default k is that limit (item 2: "Maximum expressible in uint64_t"), for every alphabet.
+    lims = doc_k_limits(help_text)
     p = [write_fa(c.wd, "p%d.fa" % i, [random_protein(c.rng, 300)]) for i in range(2)]
-    for flag, lim, fl in (("", 31, files), ("--protein", 14, p), ("--protein8", 22, p), ("--protein6", 24, p)):
-        hh = header_options(c.run(["cmp"] + ([flag] if flag else []) + fl).out)
-        c.ok(hh.get("k") == str(lim), "help-k-limit[%s]" % (flag or "DNA"),
-             "help says %d, default k is %s" % (lim, hh.get("k")), known="help-k-limits")
-    # "1. Upper Triangular PHYLIP (default)": a PHYLIP matrix starts with the number of taxa.
-    first = r.out.splitlines()[0] if r.out else ""
-    c.ok(first.strip() == str(len(files)), "default-is-phylip",
-         "first line %r; %s" % (first[:40], c.cmd(["cmp"] + files)), known="default-not-phylip")
+    for flag, fl in (("DNA", files), ("--protein", p), ("--protein14", p), ("--protein8", p), ("--protein6", p)):
+        for lng in (False, True):
+            a = ["cmp"] + ([flag] if flag != "DNA" else []) + (["-2"] if lng else []) + fl
+            got = header_options(c.run(a).out).get("k")
+            lim = lims.get((flag, lng))
+            c.ok(lim is not None and got == str(lim), "help-k-limit[%s%s]" % (flag, " -2" if lng else ""),
+                 "help gives %s, default k is %s (%s)" % ("no limit" if lim is None else lim, got, c.cmd(a)),
+                 known="help-k-limits")
+    # Comparison option 1 names the default symmetric output format.
+    m = re.search(r"^\s*1\.\s*(.*\(default\).*)$", help_text, re.M)
+    doc = m.group(1) if m else ""
+    lines = r.out.splitlines()
+    is_phylip = bool(lines) and lines[0].strip() == str(len(files))
+    hm = re.search(r"'(#Dashing2 [^']+)' header", doc)
+    if "PHYLIP" in doc:
+        ok = is_phylip
+    else:
+        ok = bool(hm) and not is_phylip and any(l.startswith(hm.group(1)) for l in lines) and all(
+            "\t" in l for l in lines if l.startswith(tuple(files)))
+    c.ok(ok, "default-output-format", "help: %r; output starts %r (%s)" % (doc[:90], "|".join(lines[:2])[:80],
+         c.cmd(["cmp"] + files)), known="default-not-phylip")
+    if "--phylip" in help_text:
+        # "--phylip emits it in PHYLIP format instead (the number of inputs, then each name followed by its values)"
+        ph = c.run(["cmp", "--phylip"] + files).out.splitlines()
+        c.ok(ph and ph[0].strip() == str(len(files)) and len(ph) == len(files) + 1 and all(
+            ph[i + 1].startswith(f) for i, f in enumerate(files)), "phylip-format", "|".join(ph[:3])[:120])
+
+
+def doc_k_limits(help_text):
+    """{(alphabet, long): k} from the help's "If k is greater than this limit (...)" sentence."""
+    m = re.search(r"If k is greater than this limit \(([^)]*)\)", help_text)
+    if not m:
+        return {}
+    short, _, lng = m.group(1).partition("long-kmers:")
+    out = {}
+    names = []
+    for n, a in re.findall(r"(\d+) for (DNA|--protein\d*)", short):
+        out[(a, False)] = int(n)
+        names.append(a)
+    for a, n in zip(names, re.findall(r"\d+", lng)):
+        out[(a, True)] = int(n)
+    return out
 
 
 def chk_sketch_types(c):
@@ -331,11 +382,27 @@ def chk_sparse(c):
             for x, v in lst:
                 j = files.index(x)
                 c.ok(close(v, sim(i, j), 1e-6), "topk-value[%d,%d]" % (i, j), "%s vs matrix %s" % (v, sim(i, j)))
-    # "If <arg> is greater than N - 1, pairwise distances are instead emitted."
-    r = c.run(base + ["--topk", N + c.rng.randint(0, 3)] + files)
-    c.ok(r.out.startswith("#Dashing2 Symmetric") or r.out.startswith("#Dashing2 Asym"), "topk-large-k-is-matrix",
-         "first line %r (%s)" % (r.out.splitlines()[0][:60] if r.out else "", c.cmd(base + ["--topk", N] + files)),
-         known="topk-large-k")
+    # The --topk line says what a value of N - 1 or more gives: a pairwise matrix, or every other item listed.
+    m = re.search(r"^--topk/--top-k <arg>(.*)$", c.usage(), re.M)
+    doc = m.group(1) if m else ""
+    big = N - 1 + c.rng.randint(0, 3)
+    a = base + ["--topk", big] + files
+    r = c.run(a)
+    if "pairwise distances are instead emitted" in doc:
+        ok = r.out.startswith("#Dashing2 Symmetric") or r.out.startswith("#Dashing2 Asym")
+    elif "every other item is listed" in doc:
+        # Items that share nothing with the query (similarity 0) are never LSH candidates and are not listed.
+        try:
+            L = parse_lists(r.out)
+        except ValueError:
+            L = {}
+        ok = r.rc == 0 and sorted(L) == sorted(files) and all(
+            sorted(x for x, _ in L[f]) == sorted(g for j, g in enumerate(files) if j != i and sim(i, j) > 0)
+            for i, f in enumerate(files))
+    else:
+        ok = False
+    c.ok(ok, "topk-large-k", "help: %r; first lines %r (%s)" % (doc.strip()[:100], "|".join(
+        r.out.splitlines()[:2])[:100], c.cmd(a)), known="topk-large-k")
     # "--similarity-threshold <arg>: only pairwise similarities over <arg> will be emitted"
     within = sorted({round(sim(i, j), 7) for i in range(N) for j in range(i + 1, N) if fam[i] == fam[j]})
     if len(within) >= 2:
@@ -423,20 +490,68 @@ def chk_binary(c):
     c.ok(got[0] is not None and len(set(got)) == 1, "cmpout-aliases-equal")
     r = c.run(["sketch", "-k", k, "--cmpout", "-"] + files)
     c.ok(got[0] is not None and r.out == got[0], "cmpout-dash-is-stdout")
-    # Top-k: "this emits a matrix of min(k, |N|) x |N| of IDs and distances"
+    # Binary top-k and thresholded output, in the layout the help describes, holds the text output's lists.
+    help_text = c.usage()
     K = c.rng.randint(1, n - 1)
-    b = c.run(base + ["--topk", K, "--binary-output"] + files, binary=True).out
-    c.ok(len(b) == min(K, n) * n * 8, "topk-binary-size", "%d bytes, help implies %d (%s)" % (
-        len(b), min(K, n) * n * 8, c.cmd(base + ["--topk", K, "--binary-output"] + files)), known="sparse-binary-format")
-    # Greedy: 2 u64, (nclusters + 1) u64, nsets u64.
+    sims = sorted(m.get(i, j) for i in range(n) for j in range(i + 1, n))
+    T = c.rng.choice(sims) * 0.999
+    for fl, v in (("--topk", K), ("--similarity-threshold", "%.6f" % T)):
+        a = base + [fl, v, "--binary-output"] + files
+        b = c.run(a, binary=True).out
+        try:
+            lists = parse_lists(c.run(base + [fl, v] + files).out)
+        except ValueError:
+            lists = {}
+        exp = [sorted((files.index(x), y) for x, y in lists.get(f, [])) for f in files]
+        if "min(k, |N|) x |N| of IDs and distances" in help_text:
+            ok = fl == "--topk" and len(b) == min(K, n) * n * 8
+            got = "%d bytes, help implies %d" % (len(b), min(K, n) * n * 8)
+        elif re.search(r"For top-k and similarity-thresholded output, this emits a compressed-sparse row \(CSR\) "
+                       r"matrix:\s*two 64-bit integers \(number of rows, number of entries\), \(rows \+ 1\) 64-bit "
+                       r"indptr values,\s*then the 32-bit neighbor indices \(64-bit in dashing2-64\), then the 32-bit "
+                       r"float", help_text):
+            rows = parse_csr(b, 8 if c.is64() else 4)
+            ok = rows is not None and len(rows) == n and all(
+                [i for i, _ in sorted(x)] == [i for i, _ in e] and all(close(v, w, 1e-5) for (_, v), (_, w) in zip(
+                    sorted(x), e)) for x, e in zip(rows, exp))
+            got = "CSR rows %s, text lists %s" % (rows and [len(x) for x in rows], [len(x) for x in exp])
+        else:
+            ok, got = False, "the help describes no binary layout for %s" % fl
+        c.ok(ok, "binary-sparse[%s]" % fl, "%s (%s)" % (got, c.cmd(a)), known="sparse-binary-format")
+    # Greedy: 2 u64 (nclusters, nsets), (nclusters + 1) u64 indptr, nsets member ids of the documented width.
     r = c.run(base + ["--greedy", "0.5", "--binary-output"] + files, binary=True)
     b = r.out
-    if len(b) >= 16:
+    wm = re.search(r"followed by \(nclusters \+ 1\) 64-bit integers, followed by nsets (\d+)-bit integers", help_text)
+    width = 8 if c.is64() and "(64-bit in dashing2-64)" in help_text else int(wm.group(1)) // 8 if wm else 0
+    if len(b) >= 16 and width:
         nc, ns = struct.unpack_from("<QQ", b)
-        c.ok(len(b) == 16 + 8 * (nc + 1) + 8 * ns, "greedy-binary-size", "%d bytes for %d clusters %d sets, help "
-             "implies %d" % (len(b), nc, ns, 16 + 8 * (nc + 1) + 8 * ns), known="greedy-binary-ids")
+        size = 16 + 8 * (nc + 1) + width * ns
+        ok = len(b) == size
+        if ok:
+            ip = struct.unpack_from("<%dQ" % (nc + 1), b, 16)
+            ids = struct.unpack_from("<%d%s" % (ns, "Q" if width == 8 else "I"), b, 16 + 8 * (nc + 1))
+            ok = ns == n and ip[0] == 0 and ip[-1] == ns and list(ip) == sorted(ip) and sorted(ids) == list(range(n))
+        c.ok(ok, "greedy-binary-layout", "%d bytes for %d clusters %d sets, help implies %d" % (len(b), nc, ns, size),
+             known="greedy-binary-ids")
     else:
-        c.res.fail("greedy-binary", r.brief())
+        c.res.fail("greedy-binary", "%s; help member id width %s" % (r.brief(), width * 8 or "not given"))
+
+
+def parse_csr(b, idx_bytes):
+    """Rows of a binary CSR matrix ([rows, entries] u64 header, u64 indptr, ids, f32 values) as lists of
+    (id, value); None if the size does not match that layout."""
+    if len(b) < 16:
+        return None
+    nr, nnz = struct.unpack_from("<QQ", b)
+    if len(b) != 16 + 8 * (nr + 1) + (idx_bytes + 4) * nnz:
+        return None
+    ip = struct.unpack_from("<%dQ" % (nr + 1), b, 16)
+    off = 16 + 8 * (nr + 1)
+    ids = struct.unpack_from("<%d%s" % (nnz, "Q" if idx_bytes == 8 else "I"), b, off)
+    vals = struct.unpack_from("<%df" % nnz, b, off + idx_bytes * nnz)
+    if ip[0] != 0 or ip[-1] != nnz or list(ip) != sorted(ip):
+        return None
+    return [list(zip(ids[ip[i]:ip[i + 1]], vals[ip[i]:ip[i + 1]])) for i in range(nr)]
 
 
 def chk_stacked(c):
@@ -461,40 +576,83 @@ def chk_stacked(c):
         c.ok(all(close(pre.get(i, j), direct.get(i, j), 1e-6) for i in range(3) for j in range(i + 1, 3)),
              "presketched-equals-direct")
     if k != 32:
-        # The Mash distance depends on k, which the stacked file does not record.
+        # The Mash distance depends on k, which the stacked file does not record. The --presketched help says
+        # to pass the sketching -k, and cmp warns when --mash-distance is used on presketched input without -k.
+        pre_doc = next((l for l in c.usage().splitlines() if l.startswith("--presketched")), "")
+        c.ok(re.search(r"do not record k.*--mash-distance.*same -k", pre_doc), "presketched-mash-k-documented",
+             "help: %r" % pre_doc[:200], known="presketched-mash-k")
         c.run(["sketch", "-k", k, "-S", S, "-o", "stm"] + files)
         d = c.mat(["cmp", "-k", k, "-S", S, "--mash-distance"] + files, "direct-mash")
-        p = c.mat(["cmp", "--mash-distance", "--presketched", "stm"], "presketched-mash")
+        a = ["cmp", "--mash-distance", "--presketched", "stm"]
+        r = c.run(a)
+        c.ok(r.rc == 0 and re.search(r"Warning:.*do not record k.*-k", r.err), "presketched-mash-k-warning",
+             "%s (sketched with -k %d): %s" % (c.cmd(a), k, r.brief()), known="presketched-mash-k")
+        p = c.mat(["cmp", "-k", k, "--mash-distance", "--presketched", "stm"], "presketched-mash")
         if d and p:
-            c.ok(close(p.get(0, 1), d.get(0, 1), 1e-5), "presketched-mash-distance",
-                 "%s vs direct %s (k=%d; sketch -k %d -S %d -o stm, cmp --mash-distance --presketched stm)" % (
-                     p.get(0, 1), d.get(0, 1), k, k, S), known="presketched-mash-k")
+            c.ok(close(p.get(0, 1), d.get(0, 1), 1e-5), "presketched-mash-distance-with-k",
+                 "%s vs direct %s (sketch -k %d -S %d -o stm, cmp -k %d --mash-distance --presketched stm)" % (
+                     p.get(0, 1), d.get(0, 1), k, S, k), known="presketched-mash-k")
 
 
 def chk_save_kmers(c):
     files = related_dna(c.rng, c.wd, c.rng.randint(2, 4))
     k = c.rng.randint(12, 31)
     S = c.rng.choice([16, 64, 100, 256])
+    seed = c.rng.randint(1, 1 << 30)
     n = len(files)
+    help_text = c.usage()
     ret_desc(c.res, "k=%d S=%d" % (k, S))
-    a = ["sketch", "-k", k, "-S", S, "-s", "-o", "db"] + files
+    a = ["sketch", "-k", k, "-S", S, "--seed", seed, "-s", "-o", "db"] + files
     r = c.run(a)
     c.ok(r.rc == 0 and os.path.exists(c.path("db.kmer64")), "save-kmers-file", r.brief())
+    # Header size and fields as the -s paragraph gives them: alphabet, sketch size, k, w (32-bit each), and in
+    # the 24-byte form the 64-bit seed.
+    hm = re.search(r"(?:kmer64 has a|This has a) (\d+)-byte header", help_text)
+    hsize = int(hm.group(1)) if hm else None
     if os.path.exists(c.path("db.kmer64")):
-        sz = os.path.getsize(c.path("db.kmer64"))
-        c.ok(sz == 16 + n * S * 8, "save-kmers-header", "%d bytes = %d + %d x %d x 8; help says a 16-byte header (%s)"
-             % (sz, sz - n * S * 8, n, S, c.cmd(a)), known="save-kmers-header-size")
-    c.ok(os.path.exists(c.path("db.kmer.names.txt")), "save-kmers-names",
-         "files: %s" % sorted(x for x in os.listdir(c.wd) if x.startswith("db")), known="save-kmers-names-path")
+        data = open(c.path("db.kmer64"), "rb").read()
+        sz = len(data)
+        ok = hsize is not None and sz == hsize + n * S * 8
+        if ok:
+            _, s_, k_, _ = struct.unpack_from("<4I", data)
+            ok = s_ == S and k_ == k
+            if hsize == 24:
+                ok = ok and "64-bit --seed value" in help_text and struct.unpack_from("<Q", data, 16)[0] == seed
+        c.ok(ok, "save-kmers-header", "%d bytes = %d + %d x %d x 8; help gives a %s-byte header (%s)" % (
+            sz, sz - n * S * 8, n, S, hsize, c.cmd(a)), known="save-kmers-header-size")
+    # "names will be written to <arg>..."
+    nm = re.search(r"names will be written to <arg>(\S*[A-Za-z0-9])", help_text)
+    npath = "db" + nm.group(1) if nm else None
+    ok = npath is not None and os.path.exists(c.path(npath))
+    if ok:
+        ok = [l.rstrip("\n").split("\t")[0] for l in open(c.path(npath)) if not l.startswith("#")] == files
+    c.ok(ok, "save-kmers-names", "help names %s; files: %s" % (npath, sorted(
+        x for x in os.listdir(c.wd) if x.startswith("db"))), known="save-kmers-names-path")
     r = c.run(["sketch", "-k", k, "-S", S, "-N", "-o", "dc"] + files)
     c.ok(os.path.exists(c.path("dc.kmercounts.f64")), "save-kmercounts-file", r.brief())
-    mode = c.rng.choice([[], ["--full"]])
-    before = set(os.listdir(c.wd))
-    a = ["sketch", "-k", k, "-S", S, "-s"] + mode + files
-    c.run(a)
-    new = sorted(set(os.listdir(c.wd)) - before)
-    c.ok(any(".kmer" in x for x in new), "save-kmers-without-o", "%s wrote %s" % (c.cmd(a), new),
-         known="save-kmers-no-file")
+    # Per-input k-mer files without -o: the help says which sketch types write them.
+    only_stacked = "k-mers are only written to the stacked file" in help_text
+    weighted_files = re.search(r"For -B/--multiset and -P/--prob, the k-mers of each input are also written to "
+                               r"a \.kmer\.u64 file", help_text)
+    runs = [(c.rng.choice([[], ["--full"]]), "-s", None)]
+    if weighted_files:
+        runs += [(m, fl, suffix) for m in (["-B"], ["--prob"]) for fl, suffix in (("-s", ".kmer.u64"),
+                                                                                    ("-N", ".kmercounts.f64"))]
+    for mode, fl, suffix in runs:
+        before = set(os.listdir(c.wd))
+        a = ["sketch", "-k", k, "-S", S, fl] + mode + files
+        c.run(a)
+        new = sorted(set(os.listdir(c.wd)) - before)
+        for x in new:
+            os.remove(c.path(x))
+        if suffix is None:
+            ok = not any(".kmer" in x for x in new) if only_stacked else any(".kmer" in x for x in new)
+            exp = "none" if only_stacked else "per-input .kmer files"
+        else:
+            ok = all(any(x.startswith(f + ".") and x.endswith(suffix) for x in new) for f in files)
+            exp = "a %s file per input" % suffix
+        c.ok(ok, "save-kmers-without-o[%s %s]" % (fl, " ".join(mode)), "%s wrote %s, help implies %s" % (
+            c.cmd(a), new, exp), known="save-kmers-no-file")
 
 
 def chk_contain(c):
@@ -550,12 +708,25 @@ def chk_seq(c):
     c.run(["sketch"] + flags + ["--seq", "--hp-compress", "--parse-by-seq", "-o", "mh", "s.fa"])
     rh = [l.split()[1:] for l in c.run(["printmin", "mh"]).out.splitlines()]
     c.ok(rh == [dedupe_runs(x) for x in exp], "hp-compress")
-    # "header: [uint64_t nitems, uint32_t k, uint32_t w], followed by `nitems` [double]"
-    if os.path.exists(c.path("mm")):
-        sz = os.path.getsize(c.path("mm"))
+    # The help gives the header as a list of typed fields ("header: [uint64_t nitems, uint32_t k, ...]"),
+    # followed by `nitems` doubles and the minimizers.
+    hm = re.search(r"header: \[(.*?)\]", c.usage(), re.S)
+    fields = re.findall(r"uint(\d+)_t (\w+)", hm.group(1)) if hm else []
+    if os.path.exists(c.path("mm")) and fields:
+        data = open(c.path("mm"), "rb").read()
+        hsize = sum(int(b) // 8 for b, _ in fields)
         body = 8 * len(recs) + 8 * sum(len(x) for x in exp)
-        c.ok(sz == 16 + body, "seq-header-size", "%d bytes = %d-byte header + lengths + minimizers (%s)" % (
-            sz, sz - body, c.cmd(a)), known="seq-header")
+        ok = len(data) == hsize + body
+        if ok:
+            vals = dict(zip([nm for _, nm in fields], struct.unpack_from("<" + "".join(
+                "Q" if b == "64" else "I" for b, _ in fields), data)))
+            ok = vals.get("nitems") == len(recs) and vals.get("k") == k
+            if "alphabet" in vals and "bit 8 is set for canonical" in hm.group(1):
+                ok = ok and bool(vals["alphabet"] & 256) == canon and vals["alphabet"] & 255 == 0
+        c.ok(ok, "seq-header", "%d bytes = %d-byte header + lengths + minimizers, help gives %d bytes: %s (%s)" % (
+            len(data), len(data) - body, hsize, [nm for _, nm in fields], c.cmd(a)), known="seq-header")
+    else:
+        c.res.fail("seq-header", "no -o file or no header in the help")
 
 
 def chk_filterset(c):
@@ -738,9 +909,14 @@ def chk_sizes(c):
     m1 = c.mat(["cmp", "-k", k, "--full", p] + files, "preset")
     m2 = c.mat(["cmp", "-k", k, "--full", "--setsketch-ab", ab, "--fastcmp", n] + files, "preset-ab")
     c.ok(m1 and m2 and same_matrix(m1, m2), "preset-equals-ab[%s]" % p)
-    r = c.run(["cmp", "-k", k, p] + files)
-    c.ok(r.rc == 0, "preset-with-default-sketch[%s]" % p, "%s: %s" % (c.cmd(["cmp", "-k", k, p] + files), r.brief()),
+    # "--setsketch-ab ... is only supported for the SetSketch (--full)": the presets select it.
+    a = ["cmp", "-k", k, p] + files
+    r = c.run(a)
+    c.ok(r.rc == 0, "preset-with-default-sketch[%s]" % p, "%s: %s" % (c.cmd(a), r.brief()),
          known="fastcmp-presets-need-full")
+    if r.rc == 0 and m1:
+        c.ok(same_matrix(matrix(r), m1), "preset-selects-full[%s]" % p, "%s differs from the same with --full" % (
+            c.cmd(a)), known="fastcmp-presets-need-full")
 
 
 def chk_seqs_in_ram(c):
@@ -774,17 +950,32 @@ def chk_readme(c):
         except (OSError, ValueError):
             L = {}
         c.ok(list(L) == files, "readme-%s" % fl)
-    # Use 7: '-o input_sequence_set.topk.tsv' is expected to hold the top-k table.
-    a = ["sketch", "--cache-sketches", "-p8", "-F", "F.txt", "-k31", "-S1024", c.rng.choice(["--set", "--countdict"]),
-         "--topk", "25", "-o", "input_sequence_set.topk.tsv"]
-    r = c.run(a)
-    try:
-        txt = open(c.path("input_sequence_set.topk.tsv"), errors="replace").read()
-    except OSError:
-        txt = ""
-    c.ok(r.out.strip() or txt.startswith("#Collection"), "readme-use7",
-         "%s: stdout empty and the .tsv holds %d bytes of stacked sketches" % (c.cmd(a), len(txt)),
-         known="readme-use7-no-output")
+    # Use 7: the README's top-k commands for exact sets write the neighbour table to input_sequence_set.topk.tsv.
+    readme = readme_text()
+    if readme is None:
+        c.res.skips.append("README.md not found: README examples not run")
+        readme = ""
+    cmds = [l for l in readme.splitlines() if l.startswith("dashing2 sketch") and "input_sequence_set.topk.tsv" in l]
+    if readme:
+        c.ok(cmds, "readme-use7-found", "no Use 7 command in README.md", known="readme-use7-no-output")
+    write_list(c.wd, "input_sequence_set.txt", files)
+    for cmd in cmds:
+        a = shlex.split(cmd)[1:]
+        r = c.run(a)
+        # Every other input that shares a k-mer is within the top 25 of three inputs.
+        mode = [x for x in a if x in ("--set", "--countdict")]
+        km = [x for x in a if x.startswith("-k")]
+        mm = c.mat(["cmp"] + km + mode + files, "readme-use7-matrix")
+        exp = {f: sorted(g for j, g in enumerate(files) if j != i and mm and mm.get(min(i, j), max(i, j)) > 0)
+               for i, f in enumerate(files)}
+        try:
+            L = parse_lists(open(c.path("input_sequence_set.topk.tsv"), errors="replace").read())
+            os.remove(c.path("input_sequence_set.topk.tsv"))
+        except (OSError, ValueError):
+            L = {}
+        c.ok(sorted(L) == sorted(files) and all(sorted(x for x, _ in L[f]) == exp[f] for f in files), "readme-use7",
+             "%s: %s; input_sequence_set.topk.tsv lists %s" % (cmd, r.brief(), sorted(L)),
+             known="readme-use7-no-output")
     # Use 4: protein, by sequence.
     base = random_protein(c.rng, 600)
     write_fa(c.wd, "uniref50.fa", [mutate_protein(c.rng, base, 0.05) for _ in range(3)])
@@ -796,12 +987,18 @@ def chk_readme(c):
     except (OSError, D2Error):
         ok = False
     c.ok(ok, "readme-use4[%s]" % fl, r.brief())
-    # "Canonicalization is off by default."
+    # "Canonicalization is on (or off) by default": a file and its reverse complement have similarity 1 (or
+    # well below 1).
+    if not readme:
+        return
+    cm = re.search(r"Canonicalization is (on|off) by default", readme)
     recs = read_fastx(c.path(files[0]))
     write_fa(c.wd, "rc.fa", [revcomp(x) for x in recs])
     m = c.mat(["cmp", "-k", k, "--set", files[0], "rc.fa"], "rc")
-    c.ok(m and m.get(0, 1) < 0.5, "readme-canon-off-by-default",
-         "similarity of a file and its reverse complement is %s" % (m and m.get(0, 1)), known="readme-canon-default")
+    sim = m.get(0, 1) if m else None
+    ok = cm is not None and sim is not None and (sim == 1.0 if cm.group(1) == "on" else sim < 0.5)
+    c.ok(ok, "readme-canon-default", "README: %r; similarity of a file and its reverse complement is %s" % (
+        cm and cm.group(0), sim), known="readme-canon-default")
 
 
 def chk_edit_distance(c):
@@ -882,22 +1079,98 @@ def chk_wsketch(c):
     except OSError:
         same = False
     c.ok(same, "wsketch-u32-ids")
-    # Help example 5: "dashing2 wsketch -S 64 -o g1.k31.k64.mat - fq.fastq.k31.indices64 fq.fastq.k31.indptr64"
-    r = c.run(["wsketch", "-S", 64, "-o", "ex5", "-", "ids.u64", "ip.u64"])
-    c.ok(r.rc == 0 and os.path.exists(c.path("ex5.sampled.info.txt")), "wsketch-example5",
-         "dashing2 wsketch -S 64 -o ex5 - ids.u64 ip.u64: %s" % r.brief(), known="wsketch-example-order")
-    # Help example 2: "dashing2 wsketch -S 64 -o g1.k31.k64 g1.fastq.k31.kmerset64 # sketches k-mers only"
+    # The examples in the wsketch help, run with files of the roles their names suggest: synthetic CSR
+    # identifiers, weights and indptr, and k-mer files written by sketch -J --cache, as the help says to prepare
+    # them. Whatever order an example uses, the result must be the sketch of those identifiers and weights.
+    help_text = c.usage("wsketch")
+    examples = re.findall(r"Example: 'dashing2 wsketch ([^'\n]*)", help_text)
+    c.ok(examples, "wsketch-examples-found", "no examples in dashing2 wsketch -h")
     files = related_dna(c.rng, c.wd, 1, 500, 1500)
     k = c.rng.randint(12, 31)
-    c.run(["sketch", "-k", k, "--set", "--cache"] + files)
-    ks = [x for x in os.listdir(c.wd) if x.endswith(".kmerset64")]
-    if ks:
-        nk = len(kmer_set(read_fastx(c.path(files[0])), k))
-        got, r = tw([ks[0]])
-        c.ok(got and close(got[0], nk), "wsketch-example2", "total weight %s for %d k-mers (dashing2 wsketch -S %d -o o "
-             "%s)" % (got and got[0], nk, S, ks[0]), known="wsketch-example-kmerset-header")
-    else:
-        c.res.fail("kmerset", "no .kmerset64 written")
+    c.run(["sketch", "-k", k, "-J", "--cache"] + files)
+    kset = [x for x in os.listdir(c.wd) if x.endswith(".kmerset64")]
+    kcnt = [x for x in os.listdir(c.wd) if x.endswith(".kmercounts.f64")]
+    if not (kset and kcnt):
+        c.res.fail("kmerset", "sketch -J --cache wrote no .kmerset64 and .kmercounts.f64")
+        return
+    counts = kmer_counts(read_fastx(c.path(files[0])), k)
+    # "... start with an 8-byte cardinality, which must be removed ..., e.g. 'tail -c +9 x.kmerset64 > x.ids64'"
+    tm = re.search(r"tail -c \+(\d+) \S+\.kmerset64 > \S+\.ids64", help_text)
+    open(c.path("kids.u64"), "wb").write(open(c.path(kset[0]), "rb").read()[int(tm.group(1)) - 1 if tm else 0:])
+    for ei, ex in enumerate(examples):
+        toks = ex.split("#")[0].split()
+        pos = toks[toks.index("-o") + 2:] if "-o" in toks else []
+        roles = []
+        for t in pos:
+            if t == "-":
+                roles.append(("-", "w"))
+            elif t.endswith("indptr64"):
+                roles.append(("ip.u64", "ip"))
+            elif "indices64" in t:
+                roles.append(("ids.u64", "ids"))
+            elif "data64" in t:
+                roles.append(("w.f64", "w"))
+            elif t.endswith(".kmerset64"):
+                roles.append((kset[0], "kids"))
+            elif t.endswith("ids64"):
+                roles.append(("kids.u64", "kids"))
+            elif t.endswith("kmercounts.f64"):
+                roles.append((kcnt[0], "kw"))
+            else:
+                roles.append((None, t))
+        kinds = [x for _, x in roles]
+        kmer = "kids" in kinds or "kw" in kinds
+        label = "wsketch-example%d" % (ei + 1)
+        if None in [f for f, _ in roles] or not roles:
+            c.res.fail(label, "cannot map the files of example %r" % ex)
+            continue
+        ws = sorted(kinds)
+        for x in os.listdir(c.wd):
+            if x.startswith(("ex.sampled", "ref.sampled")):
+                os.remove(c.path(x))
+        a = ["wsketch", "-S", 64, "-o", "ex"] + [f for f, _ in roles]
+        r = c.run(a)
+        # The same data in the order the usage line gives (identifiers, weights or '-', indptr) must give the
+        # same sketch files.
+        ref = ["kids.u64" if kmer else "ids.u64"] + [f for f, x in roles if x in ("w", "kw")] + (
+            ["ip.u64"] if "ip" in kinds else [])
+        c.run(["wsketch", "-S", 64, "-o", "ref"] + ref)
+        outs = {}
+        for x in sorted(os.listdir(c.wd)):
+            for pre in ("ex.", "ref."):
+                if x.startswith(pre + "sampled"):
+                    outs.setdefault(pre, {})[x[len(pre):]] = open(c.path(x), "rb").read()
+        same = bool(outs.get("ref.")) and outs.get("ex.") == outs.get("ref.")
+        if len(roles) == 3:
+            # identifiers, weights or '-', indptr
+            try:
+                rows = [float(x) for x in open(c.path("ex.sampled.info.txt")).read().split()]
+            except (OSError, ValueError):
+                rows = None
+            exp = [float(sum(w[x:y]) if "-" not in [f for f, _ in roles] else y - x) for x, y in zip(ip, ip[1:])]
+            ok = ws == ["ids", "ip", "w"] and rows is not None and len(rows) == nrow and all(
+                close(x, y) for x, y in zip(rows, exp))
+            got = "row weights %s, expected %s" % (rows, exp)
+            ok = ok and same
+        else:
+            try:
+                txt = open(c.path("ex.sampled.tw.txt"), "rb").read().decode("latin-1")
+                mm = re.match(r"Total weight: ([0-9.eE+-]+);", txt)
+                tot = float(mm.group(1)) if mm else None
+            except OSError:
+                tot = None
+            if kmer:
+                expv = float(sum(counts.values())) if "kw" in kinds else float(len(counts))
+                ok = ws in (["kids"], ["kids", "kw"]) and tot is not None and close(tot, expv)
+            else:
+                expv = float(sum(w)) if "w" in kinds else float(n)
+                ok = ws in (["ids"], ["ids", "w"]) and tot is not None and close(tot, expv)
+            got = "total weight %s, expected %s" % (tot, expv)
+            ok = ok and same
+        if not same:
+            got += "; sketch differs from dashing2 wsketch -S 64 -o ref %s" % " ".join(ref)
+        c.ok(ok and r.rc == 0, label, "dashing2 %s (help: %r): %s; %s" % (" ".join(map(str, a)), ex.strip()[:90], got,
+             r.brief()), known="wsketch-example-kmerset-header" if kmer else "wsketch-example-order")
 
 
 CHECKS = [chk_help, chk_defaults, chk_sketch_types, chk_measures, chk_layouts, chk_sparse, chk_greedy, chk_binary,

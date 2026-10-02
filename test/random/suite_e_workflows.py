@@ -38,22 +38,9 @@ PRESETS = {
 }
 
 # Known issues in the tested code. A failing check tagged with one of these ids is
-# an expected failure (XFAIL) unless --strict is given. See README.md, suite E.
-KNOWN = {
-    "stacked-kmercounts-f32": "sketch -N -o writes <out>.kmercounts.f64 as float32 (kmercounts_ is std::vector<float>, "
-                              "src/fastxsketch.h:45, written at src/sketch_core.cpp:200)",
-    "full-mincount-counts": "--full -N with -m > 1 saves count 1 for every sampled k-mer: CountFilteredCSetSketch::update "
-                            "(bonsai hll/include/sketch/setsketch.h:1080 and :1097) sets the count to 1 when the "
-                            "threshold is reached and returns early afterwards",
-    "bmh-stale-ids": "-B --save-kmers saves the previous input's sampled ids and counts for an input without k-mers: "
-                     "bmh_t::reset() (bonsai hll/include/sketch/bmh.h:404) does not clear track_ids_, so contain "
-                     "reports coverage for that reference",
-    "seq-o-file-mode": "sketch -G -o without --parse-by-seq writes the minimizer-sequence header over a file sized "
-                       "for sketch registers (src/fastxsketch.cpp:271, src/sketch_core.cpp:145); the body is zeros "
-                       "and printmin rejects the file",
-    "wsketch-tw-suffix": "wsketch 1-D ends <out>.sampled.tw.txt with one garbage character: ';' + 'd' + ';' + 'L' is "
-                         "integer arithmetic appended as a single char (src/wsketch.cpp:365)",
-}
+# an expected failure (XFAIL) unless --strict is given. See README.md, suite E. The
+# issues this suite found are fixed; their ids are in d2rand.FIXED_IDS.
+KNOWN = {}
 
 # Sketch modes for the comparison families: name, flags, kind.
 MODES = [
