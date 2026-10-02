@@ -66,6 +66,10 @@ int32_t num_threads();
 FastxSketchingResult &fastx2sketch(FastxSketchingResult &res, Dashing2Options &opts, const std::vector<std::string> &paths, std::string path);
 FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &res, Dashing2DistOptions &opts, const std::string &path, kseq_t *kseqs, std::string outpath, bool parallel=false, const size_t seqs_per_batch = 8192);
 std::string makedest(Dashing2Options &opts, const std::string &path, bool iskmer=false);
+// Modification time of a file in nanoseconds, or -1 if it cannot be stat'ed. Cached sketches are
+// compared with their inputs at this resolution, since std::filesystem::last_write_time rounds to
+// whole seconds with libstdc++ on macOS.
+int64_t mtime_ns(const std::string &path);
 
 namespace variation {
 using ByteSetS = sketch::setsketch::CFByteSetS;
