@@ -143,6 +143,10 @@ int sketch_main(int argc, char **argv) {
         return 1;
     }
     if(unsupported_by_seq(distopts, cmpout.size())) return 1;
+
+    // Sketching by sequence keeps the sequences only if the measure needs them
+    // (--compute-edit-distance), so the measure is set before sketching.
+    distopts.measure_ = measure;
     SketchingResult result;
     if(verbosity >= EXTREME) {
         std::fprintf(stderr, "About to sketch\n");
@@ -153,7 +157,6 @@ int sketch_main(int argc, char **argv) {
     }
     result.nqueries(nq);
     if(cmpout.size()) {
-        distopts.measure_ = measure;
         distopts.cmp_batch_size_ = default_batchsize(batch_size, distopts);
         cmp_core(distopts, result);
     }
