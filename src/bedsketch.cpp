@@ -1,4 +1,5 @@
 #include "bedsketch.h"
+#include <sys/stat.h>
 
 namespace dashing2 {
 
@@ -22,6 +23,18 @@ static std::string bed_cache_suffix(const Dashing2Options &opts) {
             ret += std::to_string(opts.cssize_);
     }
     return ret + to_suffix(opts);
+}
+
+// Modification time in nanoseconds, or -1 if the file cannot be stat'ed
+static int64_t bed_mtime_ns(const std::string &path) {
+    struct stat st;
+    if(::stat(path.data(), &st)) return -1;
+#ifdef __APPLE__
+    const auto &ts = st.st_mtimespec;
+#else
+    const auto &ts = st.st_mtim;
+#endif
+    return int64_t(ts.tv_sec) * 1000000000 + ts.tv_nsec;
 }
 
 std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const Dashing2Options &opts) {
@@ -51,7 +64,8 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
         if(opts.outprefix_.size())
             cache_path = opts.outprefix_ + '/' + cache_path;
     }
-    if(opts.cache_sketches_ && bns::isfile(cache_path)) {
+    // A cache file older than its input is not reused, so an input that was overwritten is sketched again.
+    if(opts.cache_sketches_ && bns::isfile(cache_path) && bed_mtime_ns(path) <= bed_mtime_ns(cache_path)) {
         auto [ifp, ispopen] = xopen(cache_path);
         std::fread(&ret.second, sizeof(ret.second), 1, ifp);
         while(!std::feof(ifp)) {
