@@ -101,7 +101,8 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
 
 // Opens a sequence file the same way bonsai's Encoder::for_each does in file mode:
 // .xz, .bz2 and .zst inputs are decompressed through a pipe, and zlib reads
-// everything else (plain or gzipped).
+// everything else (plain or gzipped). zlib gets its own copy of the pipe's
+// descriptor, so gzclose and pclose each close one.
 struct SeqFile {
     gzFile fp = nullptr;
     std::FILE *pfp = nullptr;
@@ -110,7 +111,7 @@ struct SeqFile {
         if(matchxz || matchbz || matchzst) {
             const std::string cmd = std::string(matchxz ? "xz": matchbz ? "bzip2": "zstd") + " -dc " + path;
             if((pfp = ::popen(cmd.data(), "r")) == nullptr) THROW_EXCEPTION(std::runtime_error("Failed to run "s + cmd));
-            fp = gzdopen(::fileno(pfp), "rb");
+            fp = gzdopen(::dup(::fileno(pfp)), "rb");
         } else fp = gzopen(path.data(), "rb");
         if(fp == nullptr) THROW_EXCEPTION(std::runtime_error("Failed to read from "s + path));
     }
