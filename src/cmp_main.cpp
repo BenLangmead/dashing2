@@ -262,6 +262,7 @@ int cmp_main(int argc, char **argv) {
     if(verbosity >= INFO) {
         std::fprintf(stderr, "output format should be %s after parsing options \n", to_string(of).data());
     }
+    const bool k_given = k >= 0;
     if(k < 0) k = nregperitem(rht, use128);
     if(compareids.empty()) {
         paths.insert(paths.end(), argv + optind, argv + argc);
@@ -377,6 +378,9 @@ int cmp_main(int argc, char **argv) {
             std::fprintf(stderr, "--presketched: stacked files from --set, --countdict or --seq cannot be compared; pass the per-input k-mer files instead\n");
             std::exit(EXIT_FAILURE);
         }
+        // Sketch files do not record k, which the Mash distance depends on.
+        if(distopts.measure_ == POISSON_LLR && !k_given)
+            std::fprintf(stderr, "Warning: --presketched sketches do not record k; --mash-distance uses k = %d. Pass the -k used for sketching if it differs.\n", distopts.k_);
         load_results(distopts, result, paths);
     } else {
         sketch_core(result, distopts, paths, outfile);
