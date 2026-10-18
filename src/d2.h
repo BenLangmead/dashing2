@@ -99,6 +99,13 @@ bns::Encoder<ScoreType, KmerT> make_encoder(const bns::Spacer &sp, bns::RollingH
     return ret;
 }
 
+// Cache-name suffix and k-mer file header bit marking hash_scheme_tagged()
+// values: polynomial rolling hash modulo 2^61-1 above the exact limit, and
+// fold64 of 128-bit k-mers with -2. Bit 8 of the header marks canonical
+// k-mers and bit 9 marks -2.
+static constexpr const char *HASH_SCHEME_SUFFIX = ".ph61";
+static constexpr uint32_t HASH_SCHEME_HEADER_BIT = 1u << 10;
+
 struct Dashing2Options {
 
     // K-mer options
@@ -259,6 +266,14 @@ public:
     auto nthreads() const {return nthreads_;}
     size_t nremperres64() const {return bns::rh2n(rht_, 8);}
     size_t nremperres128() const {return bns::rh2n(rht_, 16);}
+    // True when stored k-mer values come from the polynomial rolling hash
+    // (k above the alphabet's exact 64-bit limit) or from 128-bit k-mers
+    // (-2, folded to 64 bits for sketches). dashing2 2.1.20 and earlier
+    // produced different values under the same cache names and header bits,
+    // so these values carry a scheme tag (HASH_SCHEME_SUFFIX in cache names,
+    // HASH_SCHEME_HEADER_BIT in k-mer file headers). Exact 64-bit k-mers
+    // never changed and are not tagged.
+    bool hash_scheme_tagged() const {return use128_ || unsigned(k_) > nremperres64();}
     uint64_t seedseed() const {return seedseed_;}
     Dashing2Options &seedseed(uint64_t seed) {seedseed_ = seed; seed_mask(seedseed_); return *this;}
     bool sketch_compressed() const {

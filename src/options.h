@@ -602,7 +602,7 @@ static constexpr const char *siglen =
         "                For faster use but more memory, add --seqs-in-ram to keep larger inputs in memory as well.\n"\
         "-s/--save-kmers: Save the k-mer sampled by each sketch register.\n"\
         "  If an output path is specified with -o <arg>, stacked k-mers will be written to <arg>.kmer64, and names will be written to <arg>.kmer64.names.txt\n"\
-        "  <arg>.kmer64 has a 24-byte header: a 32-bit integer describing the alphabet used (bit 8 is set for canonical k-mers, bit 9 for --long-kmers), 32 bits describing sketch size,\n"\
+        "  <arg>.kmer64 has a 24-byte header: a 32-bit integer describing the alphabet used (bit 8 is set for canonical k-mers, bit 9 for --long-kmers, bit 10 when k-mers are rolling-hashed or folded from 128 bits), 32 bits describing sketch size,\n"\
         "  one 32-bit integer for k, one 32-bit integer for window-length, and the 64-bit --seed value; sketch-size 64-bit k-mers per input follow.\n"\
         "  This database can be used for dashing2 contain.\n"\
         "  For -B/--multiset and -P/--prob, the k-mers of each input are also written to a .kmer.u64 file next to the input (or in --outprefix).\n"\
