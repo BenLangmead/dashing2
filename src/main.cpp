@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <stdexcept>
 
 namespace dashing2 {
 int cmp_main(int argc, char **argv);
@@ -29,7 +30,7 @@ int main_usage() {
 using namespace dashing2;
 
 
-int main(int argc, char **argv) {
+static int run_subcommand(int argc, char **argv) {
     std::string cmd(std::filesystem::absolute(std::filesystem::path(argv[0])));
     for(char **s = (argv + 1); *s; cmd += std::string(" ") + *s++);
     std::fprintf(stderr, "#Calling Dashing2 version %s with command '%s'\n", DASHING2_VERSION, cmd.data());
@@ -45,6 +46,22 @@ int main(int argc, char **argv) {
         if(std::strcmp(argv[1], "printmin") == 0) {
             return printmin_main(argc - 1, argv + 1);
         }
+        if(std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0) {
+            main_usage();
+            return 0;
+        }
     }
     return main_usage();
+}
+
+int main(int argc, char **argv) {
+    // Option validation (for example Dashing2Options::validate()) reports invalid
+    // combinations by throwing std::invalid_argument. Catching it here turns the
+    // rejection into an error message and exit status 1 instead of an abort.
+    try {
+        return run_subcommand(argc, argv);
+    } catch(const std::invalid_argument &e) {
+        std::fprintf(stderr, "Error: %s\n", e.what());
+        return 1;
+    }
 }

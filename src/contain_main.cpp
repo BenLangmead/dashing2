@@ -174,14 +174,15 @@ int contain_main(int argc, char **argv) {
     char *outpath = 0;
     std::vector<std::string> streamfiles;
     for(int c;(c = getopt(argc, argv, "bh?p:o:F:")) >= 0;) switch(c) {
-        case 'h': case '?': return contain_usage();
+        case 'h': contain_usage(); return 0;
+        case '?': return contain_usage();
         case 'p': nthreads = std::max(std::atoi(optarg), 1); break;
         case 'b': binary_output = true; break;
         case 'o': outpath = optarg; break;
         case 'F': {
             std::ifstream ifs(optarg);
             for(std::string line;std::getline(ifs, line);)
-                streamfiles.emplace_back(line);
+                if(trim_path_line(line)) streamfiles.emplace_back(line);
             break;
         }
     }

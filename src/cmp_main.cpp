@@ -17,7 +17,7 @@ static option_struct name[] = {\
 void cmp_usage() {
     std::fprintf(stderr, "dashing2 cmp <opts> [fastas... (optional)]\n"
                          "We use only m-mers; if w <= k, however, this reduces to k-mers if the -w/--window-size is unspecified.\n"
-                         "--presketched\t To compute distances using a pre-sketched method (e.g., dashing2 sketch -o path), use this flag and pass in a single positional argument.\n"
+                         "--presketched\t To compute distances using a pre-sketched method (e.g., dashing2 sketch -o path), use this flag and pass in a single positional argument. Sketch files do not record k, so with --mash-distance pass the same -k (and -2) that was used for sketching.\n"
                          SHARED_DOC_LINES
     );
 }
@@ -263,13 +263,16 @@ int cmp_main(int argc, char **argv) {
     if(verbosity >= Verbosity::INFO) {
         std::fprintf(stderr, "output format should be %s before parsing options \n", to_string(of).data());
     }
-    for(;(c = getopt_long(argc, argv, "m:p:k:w:c:f:S:F:Q:o:L:vNs2BPWh?ZJGH", cmp_long_options, &option_index)) >= 0;) {switch(c) {
-        case OPTARG_HELP: case '?': case 'h': cmp_usage(); return 1;
+    for(;(c = getopt_long(argc, argv, "m:p:k:w:c:f:S:F:Q:o:L:CvNs2BPWh?ZJGH", cmp_long_options, &option_index)) >= 0;) {switch(c) {
+        // A requested usage message is not an error; an unknown option is.
+        case OPTARG_HELP: case 'h': cmp_usage(); return 0;
+        case '?': cmp_usage(); return 1;
         SHARED_FIELDS
     }}
     if(verbosity >= INFO) {
         std::fprintf(stderr, "output format should be %s after parsing options \n", to_string(of).data());
     }
+    const bool k_given = k >= 0;
     if(k < 0) k = nregperitem(rht, use128);
     if(compareids.empty()) {
         paths.insert(paths.end(), argv + optind, argv + argc);
@@ -285,14 +288,20 @@ int cmp_main(int argc, char **argv) {
         static constexpr size_t bufsize = 1<<18;
         std::unique_ptr<char []> buf(new char[bufsize]);
         ifs.rdbuf()->pubsetbuf(buf.get(), bufsize);
-        for(std::string l;std::getline(ifs, l);paths.push_back(l));
+        for(std::string l;std::getline(ifs, l);)
+            if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nref = paths.size();
     if(qfile.size()) {
         std::ifstream ifs(qfile);
-        for(std::string l;std::getline(ifs, l);paths.push_back(l));
+        for(std::string l;std::getline(ifs, l);)
+            if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nq = paths.size() - nref;
+    // Top-k, threshold and greedy modes compare every input with every other, and the
+    // output kind is set by whichever of these flags and -Q came last.
+    if(nq && (topk_threshold > 0 || similarity_threshold > 0.))
+        THROW_EXCEPTION(std::invalid_argument("-Q/--qfile (a reference-by-query matrix) cannot be combined with --topk, --similarity-threshold or --greedy. Provide all inputs as positional arguments or with -F instead."));
     Dashing2Options opts(k, w, rht, sketch_space, dt, nt, use128, spacing, canon, res);
     opts
         .cache_sketches(cache)
@@ -403,8 +412,12 @@ int cmp_main(int argc, char **argv) {
             std::fprintf(stderr, "--presketched: stacked files from --set, --countdict or --seq cannot be compared; pass the per-input k-mer files instead\n");
             std::exit(EXIT_FAILURE);
         }
+        // Sketch files do not record k, which the Mash distance depends on.
+        if(distopts.measure_ == POISSON_LLR && !k_given)
+            std::fprintf(stderr, "Warning: --presketched sketches do not record k; --mash-distance uses k = %d. Pass the -k used for sketching if it differs.\n", distopts.k_);
         load_results(distopts, result, paths);
     } else {
+        if(unsupported_by_seq(distopts, true)) return 1;
         sketch_core(result, distopts, paths, outfile);
         result.nqueries(nq);
     }
@@ -420,6 +433,22 @@ int cmp_main(int argc, char **argv) {
     return 0;
 }
 
+
+// Exact k-mer sets and count dictionaries are only built per file, and per-sequence
+// minimizer sequences are written but cannot be compared, so these combinations
+// with --parse-by-seq are rejected up front. Returns true (after printing why) if unsupported.
+bool unsupported_by_seq(const Dashing2Options &opts, bool comparing) {
+    if(!opts.parse_by_seq_) return false;
+    if(opts.kmer_result_ == FULL_MMER_SET || opts.kmer_result_ == FULL_MMER_COUNTDICT) {
+        std::fprintf(stderr, "Error: --parse-by-seq cannot be combined with --set or --countdict. Use a sketch type (the default, --full, -B or --prob), or split the records into separate files.\n");
+        return true;
+    }
+    if(opts.kmer_result_ == FULL_MMER_SEQUENCE && comparing) {
+        std::fprintf(stderr, "Error: --parse-by-seq with --seq/-G can only write minimizer sequences (dashing2 sketch -o), not compare them.\n");
+        return true;
+    }
+    return false;
+}
 
 size_t default_batchsize(size_t &batch_size, const Dashing2DistOptions &opts) {
     if(batch_size == 0) {

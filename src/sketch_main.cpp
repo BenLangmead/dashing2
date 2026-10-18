@@ -63,7 +63,9 @@ int sketch_main(int argc, char **argv) {
     for(;(c = getopt_long(argc, argv, "m:p:k:w:c:f:S:F:Q:o:L:CNs2BPWh?ZJGHv", sketch_long_options, &option_index)) >= 0;) {
         switch(c) {
             SHARED_FIELDS
-            case OPTARG_HELP: case '?': case 'h': sketch_usage(); return 1;
+            // A requested usage message is not an error; an unknown option is.
+            case OPTARG_HELP: case 'h': sketch_usage(); return 0;
+            case '?': sketch_usage(); return 1;
         }
         //std::fprintf(stderr, "After getopt argument %d, of is %s\n",c , to_string(of).data());
     }
@@ -84,7 +86,7 @@ int sketch_main(int argc, char **argv) {
         std::unique_ptr<char []> buf(new char[bufsize]);
         ifs.rdbuf()->pubsetbuf(buf.get(), bufsize);
         for(std::string l;std::getline(ifs, l);) {
-            paths.push_back(l);
+            if(trim_path_line(l)) paths.push_back(l);
         }
         if(paths.empty()) {
             THROW_EXCEPTION(std::runtime_error("No paths read from "s + ffile));
@@ -94,9 +96,13 @@ int sketch_main(int argc, char **argv) {
     if(qfile.size()) {
         std::ifstream ifs(qfile);
         for(std::string l;std::getline(ifs, l);)
-            paths.push_back(l);
+            if(trim_path_line(l)) paths.push_back(l);
     }
     size_t nq = paths.size() - nref;
+    // Top-k, threshold and greedy modes compare every input with every other, and the
+    // output kind is set by whichever of these flags and -Q came last.
+    if(nq && (topk_threshold > 0 || similarity_threshold > 0.))
+        THROW_EXCEPTION(std::invalid_argument("-Q/--qfile (a reference-by-query matrix) cannot be combined with --topk, --similarity-threshold or --greedy. Provide all inputs as positional arguments or with -F instead."));
     Dashing2Options opts(k, w, rht, sketch_space, dt, nt, use128, spacing, canon, res);
     opts
         .cache_sketches(cache)
@@ -152,6 +158,7 @@ int sketch_main(int argc, char **argv) {
     // Sketching by sequence keeps the sequences only if the measure needs them
     // (--compute-edit-distance), so the measure is set before sketching.
     distopts.measure_ = measure;
+    if(unsupported_by_seq(distopts, cmpout.size())) return 1;
     SketchingResult result;
     if(verbosity >= EXTREME) {
         std::fprintf(stderr, "About to sketch\n");
