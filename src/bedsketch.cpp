@@ -1,6 +1,48 @@
 #include "bedsketch.h"
+#include "fastxsketch.h"
 
 namespace dashing2 {
+
+// Every option that changes a BED sketch is part of its cache file name, followed by the
+// sketch suffix (.ss, .opss, .bmh or .pmh), so a cache is only reused under the same options.
+static std::string bed_cache_suffix(const Dashing2Options &opts) {
+    std::string ret = ".sketchsize" + std::to_string(opts.sketchsize_);
+    if(opts.count_threshold_ > 0) {
+        ret += ".ct_threshold";
+        if(std::fmod(opts.count_threshold_, 1.)) ret += std::to_string(opts.count_threshold_);
+        else ret += std::to_string(int(opts.count_threshold_));
+    }
+    if(!opts.trim_chr_)
+        ret += ".notrimchr";
+    if(opts.bed_parse_normalize_intervals_)
+        ret += ".normalize_intervals";
+    if(opts.sspace_ != SPACE_SET) {
+        ret += '.';
+        ret += to_string(opts.ct());
+        if(opts.ct() != EXACT_COUNTING)
+            ret += std::to_string(opts.cssize_);
+    }
+    return ret + to_suffix(opts);
+}
+
+std::string interval_cache_path(const std::string &path, const Dashing2Options &opts, const std::string &suffix) {
+    if(!opts.trim_folder_paths()) return path + suffix;
+    // The cache file keeps the sketch suffix, so it is never named like an input file.
+    // Files with the same name in different directories must not share a cache file,
+    // so the file name is tagged with a hash of its absolute path.
+    char *const abspath = ::realpath(path.data(), nullptr);
+    const std::string key = abspath ? abspath: path;
+    std::free(abspath);
+    char buf[24];
+    std::string ret = trim_folder(path) + std::string(buf, std::snprintf(buf, sizeof(buf), ".%016llx", static_cast<unsigned long long>(XXH3_64bits(key.data(), key.size())))) + suffix;
+    if(opts.outprefix_.size())
+        ret = opts.outprefix_ + '/' + ret;
+    return ret;
+}
+
+bool interval_cache_is_fresh(const std::string &cache_path, const std::string &path) {
+    return bns::isfile(cache_path) && mtime_ns(path) <= mtime_ns(cache_path);
+}
 
 std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const Dashing2Options &opts) {
     if(opts.sspace_ > SPACE_PSET) throw std::invalid_argument("Can't do edit distance for BED files");
@@ -13,15 +55,10 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     Counter ctr(opts.cssize_);
     std::pair<std::vector<RegT>, double> ret({std::vector<RegT>(opts.sketchsize_), 0.});
     auto &retvec(ret.first);
-    std::string cache_path = path + to_suffix(opts);
+    const std::string cache_path = interval_cache_path(path, opts, bed_cache_suffix(opts));
     DBG_ONLY(std::fprintf(stderr, "Using %s\n", op ? "oneperm": "fullsetsketch");)
-
-    if(opts.trim_folder_paths()) {
-        cache_path = trim_folder(path);
-        if(opts.outprefix_.size())
-            cache_path = opts.outprefix_ + '/' + cache_path;
-    }
-    if(opts.cache_sketches_ && bns::isfile(cache_path)) {
+    // A cache file older than its input is not reused, so an input that was overwritten is sketched again.
+    if(opts.cache_sketches_ && interval_cache_is_fresh(cache_path, path)) {
         auto [ifp, ispopen] = xopen(cache_path);
         std::fread(&ret.second, sizeof(ret.second), 1, ifp);
         retvec.clear();
@@ -57,7 +94,6 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
             for(auto i = start; i < stop; ctr.add(chrhash ^ i++, inc));
         }
     }
-    std::FILE *ofp = bfopen(cache_path.data(), "w");
     if(opts.sspace_ > SPACE_SET) {
         if(opts.ct() == EXACT_COUNTING) {
             if(opts.sspace_ == SPACE_MULTISET) {
@@ -65,23 +101,17 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
                 ctr.finalize(bmh);
                 std::copy(bmh.data(), bmh.data() + opts.sketchsize_, retvec.data());
                 ret.second = bmh.total_weight();
-                std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);
-                std::fwrite(bmh.data(), opts.sketchsize_, sizeof(RegT), ofp);
             } else {
                 sketch::pmh2_t pmh(opts.sketchsize_);
                 ctr.finalize(pmh);
                 std::copy(pmh.data(), pmh.data() + opts.sketchsize_, retvec.data());
                 ret.second = pmh.total_weight();
-                std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);
-                std::fwrite(pmh.data(), opts.sketchsize_, sizeof(RegT), ofp);
             }
         } else {
 #define __FS() do {\
     for(size_t i = 0; i < csz; ++i) sketcher.update(i, ctr.count_sketch_[i]);\
     auto p = sketcher.data();\
     ret.second = sketcher.total_weight();\
-    std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);\
-    std::fwrite(p, opts.sketchsize_, sizeof(RegT), ofp);\
     std::copy(p, p + opts.sketchsize_, retvec.data());\
     } while(0)
             const size_t csz = ctr.count_sketch_.size();
@@ -97,11 +127,16 @@ std::pair<std::vector<RegT>, double> bed2sketch(const std::string &path, const D
     } else {
         ret.second = op ? opss.getcard(): ss.getcard();
         RegT *sptr = op ? opss.data(): ss.data();
-        std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);\
-        std::fwrite(sptr, opts.sketchsize_, sizeof(RegT), ofp);
         std::copy(sptr, sptr + opts.sketchsize_, retvec.data());
     }
-    std::fclose(ofp);
+    // Like sketches of sequence files, BED sketches are written to disk only with --cache.
+    if(opts.cache_sketches_) {
+        std::FILE *ofp = bfopen(cache_path.data(), "wb");
+        if(ofp == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to open file ") + cache_path + " for writing sketch."));
+        std::fwrite(&ret.second, 1, sizeof(ret.second), ofp);
+        std::fwrite(retvec.data(), opts.sketchsize_, sizeof(RegT), ofp);
+        std::fclose(ofp);
+    }
     return ret;
 }
 

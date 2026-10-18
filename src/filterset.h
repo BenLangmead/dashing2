@@ -40,6 +40,7 @@ class FilterSet {
     // 128-bit items are stored as (low, high) word pairs, the little-endian layout of u128_t,
     // so the sorted table can be searched as an array of u128_t.
     bool is128_ = false;
+    uint64_t digest_ = 0;
     //  Table size is
 #ifndef M_LN2
     static constexpr double M_LN2 = 0.6931471805599453;
@@ -78,6 +79,8 @@ class FilterSet {
         return ret;
     }
 public:
+    // Hash of the finalized contents, set by finalize()
+    uint64_t digest() const {return digest_;}
     std::string to_string() const {
         if(is_bf()) {
             return std::string("FilterSetBloomFilter-size=") + std::to_string(data_.size()) + ",k=" + std::to_string(k_) + ",err=" + std::to_string(bfexp_);
@@ -97,6 +100,7 @@ public:
         bfexp_ = o.bfexp_;
         k_ = o.k_;
         is128_ = o.is128_;
+        digest_ = o.digest_;
         return *this;
     }
     FilterSet(double bfexp=-1., int k=-1): bfexp_(bfexp), k_(k) {
