@@ -487,6 +487,7 @@ static constexpr const char *siglen =
         "--entmin: If -w/--window-size is enabled, this option weights the hash value by the entropy of the k-mer itself.\nThis is only valid for k-mers short enough to be encoded exactly in 64-bit or 128-bit integers, depending on if --long-kmers is enabled.\n"\
         "--spacing: Set a spacing scheme for spaced minimizers\n"\
         "This must have 1 less integer than the k-mer length.\n"\
+        "Spaced seeds require k small enough to encode exactly (see -k and -2), and they disable canonicalization (spaced k-mers are strand-specific).\n"\
         "e.g., -k5 --spacing 0,1,1,0 specifies a match length of 5 with a match pattern of `KK$K$KK`, where $ positions are ignored and `K` positions are kept.\n"\
         "This can also be run-length compressed in <space, num> format.\n"\
         "For example, --spacing 0,1x2,0 is equivalent to 0,1,1,0.\n"\

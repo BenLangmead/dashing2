@@ -59,7 +59,7 @@ void Dashing2Options::filterset(const std::string &path, bool is_kmer) {
         else cmd = "";
         std::FILE *ifp;
         if(cmd.empty()) {
-            if((ifp = bfopen(cmd.data(), "rb")) == 0)
+            if((ifp = bfopen(path.data(), "rb")) == 0)
                 THROW_EXCEPTION(std::runtime_error("Failed to open file "s + path + " for reading"));
         } else {
             if((ifp= ::popen((cmd + path).data(), "r")) == 0)
@@ -76,21 +76,28 @@ void Dashing2Options::filterset(const std::string &path, bool is_kmer) {
         else
             ::pclose(ifp);
     } else {
+        // The filter holds every k-mer of the file, not only its minimizers, so
+        // the encoders below are unwindowed copies of the sketching encoders.
+        const bns::Spacer fsp(k_, k_, spacing_.data());
+        std::optional<bns::Encoder<>> enc;
+        if(enc_) enc.emplace(make_encoder<bns::score::Lex, uint64_t>(fsp, rht_, canonicalize()));
+        bns::RollingHasher<uint64_t> rh(k_, canonicalize(), rht_);
+        bns::RollingHasher<u128_t> rh128(k_, canonicalize(), rht_);
         for_each_substr([&](const std::string &subpath) {
             //std::fprintf(stderr, "Doing for_each_substr for subpath = %s\n", subpath.data());
             const auto sp = subpath.data();
             auto lfunc = [&](auto x) {fs_->add(maskfn(x));};
             if(use128()) {
                 if(unsigned(k_) <= nremperres128()) {
-                    auto encoder = make_encoder<bns::score::Lex, u128_t>(sp_, rht_, canonicalize());
+                    auto encoder = make_encoder<bns::score::Lex, u128_t>(fsp, rht_, canonicalize());
                     encoder.for_each(lfunc, sp);
                 } else {
-                    rh128_.for_each_hash(lfunc, sp);
+                    rh128.for_each_hash(lfunc, sp);
                 }
             } else if(unsigned(k_) <= nremperres64()) {
-                enc_.value().for_each(lfunc, sp);
+                enc.value().for_each(lfunc, sp);
             } else {
-                rh_.for_each_hash(lfunc, sp);
+                rh.for_each_hash(lfunc, sp);
             }
         }, path);
     }
