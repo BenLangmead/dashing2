@@ -3,6 +3,9 @@
 #define DASHING2_OPTIONS_H__
 #include <enums.h>
 #include <getopt.h>
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include "dedup_core.h"
 
 namespace dashing2 {
@@ -283,6 +286,22 @@ const std::vector<std::string> VALID_LONG_OPTION_STRINGS {{
     "seqs-in-ram",
 }};
 
+// Longest k accepted by -k. The rolling hash has no limit of its own, but a
+// spacer holds one 16-bit gap per base, and k-mers longer than this are far
+// beyond any use; the bound mainly stops out-of-range numbers from wrapping
+// around in conversion to int.
+static constexpr long long MAX_KMER_LENGTH = 1ll << 24;
+static inline int parse_kmer_length(const char *arg) {
+    char *end;
+    errno = 0;
+    const long long v = std::strtoll(arg, &end, 10);
+    if(end == arg || *end != '\0' || errno == ERANGE || v < 1 || v > MAX_KMER_LENGTH) {
+        std::fprintf(stderr, "Error: -k/--kmer-length must be an integer from 1 to %lld (got '%s').\n", MAX_KMER_LENGTH, arg);
+        std::exit(1);
+    }
+    return static_cast<int>(v);
+}
+
 // This function takes a vector of additional strings,
 // since subcommands may have special flags unique to them.
 // Add those strings to the second argument when validating those options.
@@ -355,7 +374,7 @@ static inline void validate_options(char **const opts, const std::vector<std::st
         case OPTARG_BED_NORMALIZE: normalize_bed = true; break;\
         case 'o': outfile = optarg; break;\
         case 'c': cssize = std::strtoull(optarg, nullptr, 10); break;\
-        case 'k': k = std::atoi(optarg); break;\
+        case 'k': k = parse_kmer_length(optarg); break;\
         case 'w': w = std::atoi(optarg); break;\
         case 'W': cache = true; break;\
         case 'B': sketch_space = SPACE_MULTISET; res = FULL_SETSKETCH; break;\

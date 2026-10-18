@@ -104,8 +104,8 @@ struct Dashing2Options {
     // K-mer options
     int k_, w_;
     bns::Spacer sp_;
-    // Engaged only when the 64-bit bonsai Encoder can represent k_ (k <= 32);
-    // longer k-mers are hashed with rh_/rh128_ below.
+    // Engaged only when the 64-bit bonsai Encoder can represent k_ for the
+    // alphabet (k <= nremperres64()); longer k-mers are hashed with rh_/rh128_ below.
     mutable std::optional<bns::Encoder<>> enc_;
     mutable bns::RollingHasher<uint64_t> rh_;
     mutable bns::RollingHasher<u128_t> rh128_;
@@ -147,7 +147,6 @@ public:
     Dashing2Options(int k, int w=-1, bns::RollingHashingType rht=bns::DNA, SketchSpace space=SPACE_SET, DataType dtype=FASTX, size_t nt=0, bool use128=false, std::string spacing="", bool canon=false, KmerSketchResultType kres=ONE_PERM):
         k_(k), w_(w), sp_(k, w > 0 ? w: k, spacing.data()), rh_(k, canon, rht, w), rh128_(k, canon, rht, w), rht_(rht), spacing_(spacing), sspace_(space), dtype_(dtype), use128_(use128) {
         kmer_result_ = kres;
-        if(unsigned(k) <= bns::rh2n(bns::DNA, sizeof(uint64_t))) enc_.emplace(sp_, canon);
         ht(rht);
 #ifndef NDEBUG
         if(dtype_ == FASTX) {
@@ -220,7 +219,11 @@ public:
     Dashing2Options &ht(bns::InputType rt) {
         rht_ = rt;
         rh_.hashtype(rt); rh128_.hashtype(rt);
-        if(enc_) enc_->hashtype(rt);
+        // The exact 64-bit limit depends on the alphabet, so the encoder is
+        // engaged or released whenever the alphabet changes.
+        const bool canon = canonicalize();
+        if(unsigned(k_) <= nremperres64()) enc_.emplace(make_encoder<bns::score::Lex, uint64_t>(sp_, rt, canon));
+        else enc_.reset();
         assert(rh_.hashtype() == rt);
         assert(!enc_ || enc_->hashtype() == rt);
         return *this;
