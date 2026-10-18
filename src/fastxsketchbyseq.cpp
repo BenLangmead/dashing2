@@ -108,8 +108,29 @@ struct OptSketcher {
 };
 void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t newsz, std::vector<OptSketcher> &sketchvec, size_t &lastindex, size_t nthreads, const std::string_view path);
 
+// Opens a sequence file the same way bonsai's Encoder::for_each does in file mode:
+// .xz, .bz2 and .zst inputs are decompressed through a pipe, and zlib reads
+// everything else (plain or gzipped). zlib gets its own copy of the pipe's
+// descriptor, so gzclose and pclose each close one.
+struct SeqFile {
+    gzFile fp = nullptr;
+    std::FILE *pfp = nullptr;
+    explicit SeqFile(const std::string &path) {
+        const bool matchxz = endswith(path, ".xz"), matchbz = endswith(path, ".bz2"), matchzst = endswith(path, ".zst");
+        if(matchxz || matchbz || matchzst) {
+            const std::string cmd = std::string(matchxz ? "xz": matchbz ? "bzip2": "zstd") + " -dc " + path;
+            if((pfp = ::popen(cmd.data(), "r")) == nullptr) THROW_EXCEPTION(std::runtime_error("Failed to run "s + cmd));
+            fp = gzdopen(::dup(::fileno(pfp)), "rb");
+        } else fp = gzopen(path.data(), "rb");
+        if(fp == nullptr) THROW_EXCEPTION(std::runtime_error("Failed to read from "s + path));
+    }
+    ~SeqFile() {
+        gzclose(fp);
+        if(pfp) ::pclose(pfp);
+    }
+};
+
 FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2DistOptions &opts, const std::string &path, kseq_t *kseqs, std::string outpath, bool parallel, size_t seqs_per_batch) {
-    gzFile ifp;
     kseq_t *myseq = kseqs ? &kseqs[OMP_ELSE(omp_get_thread_num(), 0)]: (kseq_t *)std::calloc(sizeof(kseq_t), 1);
     size_t batch_index = 0;
     OptSketcher sketcher(opts);
@@ -159,15 +180,13 @@ FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2Dist
             std::this_thread::sleep_for(std::chrono::duration<double, std::micro>{10});
         }
         threads.emplace_back([&,path]() {
-            gzFile fp = gzopen(path.data(), "r");
-            if(!fp) THROW_EXCEPTION(std::runtime_error("Failed to open gzfile"s + path + "to count sequences."));
-            kseq_t *ks = kseq_init(fp);
+            SeqFile sf(path);
+            kseq_t *ks = kseq_init(sf.fp);
             while(kseq_read(ks) >= 0) {
                 ++total_nseqs_a;
                 total_bases_a += ks->seq.l;
             }
             kseq_destroy(ks);
-            gzclose(fp);
         });
         std::erase_if(threads, join_if_joinable);
     }, path);
@@ -242,9 +261,9 @@ FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2Dist
     }
     for_each_substr([&](const auto &x) {
         DBG_ONLY(std::fprintf(stderr, "Processing substr %s\n", x.data()););
-        if((ifp = gzopen(x.data(), "rb")) == nullptr) THROW_EXCEPTION(std::runtime_error(std::string("Failed to read from ") + x));
-        gzbuffer(ifp, 1u << 17);
-        kseq_assign(myseq, ifp);
+        SeqFile sf(x);
+        gzbuffer(sf.fp, 1u << 17);
+        kseq_assign(myseq, sf.fp);
         for(int c;(c = kseq_read(myseq)) >= 0;) {
             //DBG_ONLY(std::fprintf(stderr, "Sequence %s of length %zu\n", myseq->name.s, myseq->seq.l););
             ret.sequences_.emplace_back(myseq->seq.s, myseq->seq.l);
@@ -257,7 +276,6 @@ FastxSketchingResult &fastx2sketch_byseq(FastxSketchingResult &ret, Dashing2Dist
                 seqs_per_batch = std::min(seqs_per_batch << 1, size_t(0x1000));
             }
         }
-        gzclose(ifp);
     }, path);
     if(!kseqs) kseq_destroy(myseq);
     if(batch_index) resize_fill(opts, ret, batch_index, sketching_data, lastindex, nt, std::string_view(path));
@@ -332,9 +350,12 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
             ret.cardinalities_[i] = seql;
         } else if(seqmins) { // Sequence of minimizers
             auto &myseq(seqmins[i - lastindex]);
+            bool any_minimizer = false;
             sketchers.for_each([&](auto x) {
+                any_minimizer = true;
                 x = maskfn(x);
                 if(opts.fs_ && opts.fs_->in_set(x)) return;
+                if(!opts.downsample_pass(x)) return;
                 if(!opts.homopolymer_compress_minimizers_ || myseq.empty() ||
                     (sizeof(x) == 8 ? myseq.back() != x: std::memcmp(&myseq[myseq.size() - 2], &x, 16) != 0))
                 {
@@ -349,7 +370,7 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
             // This handles the case where the sequence is shorter than the window size
             // and the entire sequence yields no minimizer.
             // We instead take the minimum-hashed value from the b-tree
-            if(opts.w_ > opts.k_ && myseq.empty() && seql) {
+            if(opts.w_ > opts.k_ && !any_minimizer && seql) {
                 //std::fprintf(stderr, "Adding in single item for small seq]\n");
                 if(sketchers.rh128_.n_in_queue()) {
                     u128_t v = sketchers.rh128_.max_in_queue().el_;
@@ -375,20 +396,26 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
         } else {
             DBG_ONLY(std::fprintf(stderr, "Sketching all k-mers in sequence %s/%zu\n", ret.names_[i].data(), i););
             const bool isop = sketchers.opss.get(), isctr = sketchers.ctr.get(), isfs = sketchers.fss.get(), iscfss = sketchers.cfss.get();
+            SmallSetCounter exact(isctr ? 0: small_set_limit(opts));
             auto fsfunc = [&](auto x) __attribute__((always_inline)) {
                 x = maskfn(x);
-                if(opts.fs_->in_set(x)) return;
-                if(isop)    sketchers.opss->update(fold64(x));
-                else if(isctr) sketchers.ctr->add(x);
-                else if(isfs) sketchers.fss->update(fold64(x));
-                else if(iscfss) std::visit([&x](auto &sketch) __attribute__((always_inline)) {sketch.update(fold64(x));}, *sketchers.cfss);
+                if(opts.fs_->in_set(x) || !opts.downsample_pass(x)) return;
+                if(isctr) {sketchers.ctr->add(x); return;}
+                const uint64_t id = fold64(x);
+                exact.add(id);
+                if(isop)    sketchers.opss->update(id);
+                else if(isfs) sketchers.fss->update(id);
+                else if(iscfss) std::visit([id](auto &sketch) __attribute__((always_inline)) {sketch.update(id);}, *sketchers.cfss);
             };
             auto nofsfunc = [&](auto x) __attribute__((always_inline)) {
                 x = maskfn(x);
-                if(isop) sketchers.opss->update(fold64(x));
-                else if(isctr) sketchers.ctr->add(x);
-                else if(isfs) sketchers.fss->update(fold64(x));
-                else if(iscfss) std::visit([&x](auto &sketch) __attribute__((always_inline)) {sketch.update(fold64(x));}, *sketchers.cfss);
+                if(!opts.downsample_pass(x)) return;
+                if(isctr) {sketchers.ctr->add(x); return;}
+                const uint64_t id = fold64(x);
+                exact.add(id);
+                if(isop) sketchers.opss->update(id);
+                else if(isfs) sketchers.fss->update(id);
+                else if(iscfss) std::visit([id](auto &sketch) __attribute__((always_inline)) {sketch.update(id);}, *sketchers.cfss);
             };
             if(opts.fs_) {
                 sketchers.for_each(fsfunc, seqp, seql);
@@ -423,22 +450,7 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
                         }
                         ret.cardinalities_[i] = 0.;
                     }
-                    if(ret.cardinalities_[i] < 10 * opts.sketchsize_) {
-                        DBG_ONLY(std::fprintf(stderr, "Cardinality exact counting fall-back\n"););
-                        flat_hash_set<uint64_t> ids;
-                        ids.reserve(opts.sketchsize_);
-                        if(opts.fs_) {
-                            sketchers.for_each([&](auto x) {
-                                x = maskfn(x);
-                                if(opts.fs_->in_set(x)) return;
-                                ids.insert(fold64(x));
-                            }, seqp, seql);
-                        } else {
-                            sketchers.for_each([&](auto x) {ids.insert(fold64(maskfn(x)));}, seqp, seql);
-                        }
-                        ret.cardinalities_[i] = ids.size();
-                        DBG_ONLY(std::fprintf(stderr, "Cardinality exact counting fall-back complete\n"););
-                    }
+                    ret.cardinalities_[i] = exact.cardinality(ret.cardinalities_[i]);
                     kmer_ptr = sketchers.opss ? sketchers.opss->ids().data(): sketchers.fss ? sketchers.fss->ids().data(): (const uint64_t *)nullptr;
                     if(sketchers.opss && sketchers.opss->idcounts().size()) {
                         auto &idc = sketchers.opss->idcounts();
