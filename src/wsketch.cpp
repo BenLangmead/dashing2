@@ -28,14 +28,14 @@ std::vector<SimpleMHRet> minhash_rowwise_csr(const FT *weights, const IT *indice
         ++total_processed;
         BMH h(construct<BMH>(m));
         const size_t b = indptr[i], e = indptr[i + 1];
+        // Sketch the given ids, so that rows sharing ids share samples.
         for(size_t j = b; j < e; ++j) {
-            h.update(j - b, weights ? weights[j]: FT(1));
+            h.update(uint64_t(indices[j]), weights ? weights[j]: FT(1));
         }
         if constexpr(!std::is_same_v<BMH, FullSetSketch>) h.finalize();
         std::get<3>(ret[i]) = total_weight(h);
-        std::vector<uint64_t> ids(m);
         auto &hids = h.ids();
-        std::transform(hids.begin(), hids.end(), ids.begin(), [ind=indices + b](auto x) {return ind[x];});
+        std::vector<uint64_t> ids(hids.begin(), hids.end());
         std::get<0>(ret[i]) = h.template to_sigs<RegT>();
         std::get<1>(ret[i]) = h.template to_sigs<uint64_t>();
         std::get<2>(ret[i]) = ids;
@@ -55,15 +55,11 @@ template<typename BMH, typename FT, typename IT>
 SimpleMHRet minwise_det(const FT *weights, const IT *indices, size_t n, size_t m) {
     BMH h(construct<BMH>(m));
     for(size_t i = 0; i < n; ++i) {
-        // We use the offset as a first ID, and then we convert these to the
-         // relevant IDs sampled at the end
-        h.update(i, weights ? weights[i]: FT(1));
+        h.update(uint64_t(indices[i]), weights ? weights[i]: FT(1));
     }
-    std::vector<uint64_t> ids(m);
-    std::vector<RegT> regs;
     if constexpr(!std::is_same_v<BMH, FullSetSketch>) h.finalize();
     auto &hids = h.ids();
-    std::transform(hids.begin(), hids.end(), ids.begin(), [ind=indices](auto x) {return ind[x];});
+    std::vector<uint64_t> ids(hids.begin(), hids.end());
     SimpleMHRet ret;
     ret.sigs() = h.template to_sigs<RegT>();
     ret.hashes() = h.template to_sigs<uint64_t>();
@@ -74,9 +70,9 @@ SimpleMHRet minwise_det(const FT *weights, const IT *indices, size_t n, size_t m
 template<typename FT, typename IT>
 SimpleMHRet minhash(const FT *weights, const IT *indices, size_t n, size_t m, int usepmh) {
     std::fprintf(stderr, "Made mw det, w = %p, i = %p, size = %zu, %d pmh\n", (void *)weights, (void *)indices, sizeof(IT), usepmh);
-    if(usepmh == 0)
+    if(usepmh == 1)
         return minwise_det<ProbMinHash>(weights, indices, n, m);
-    if(usepmh == 1) return minwise_det<BagMinHash>(weights, indices, n, m);
+    if(usepmh == 0) return minwise_det<BagMinHash>(weights, indices, n, m);
     return minwise_det<FullSetSketch>(weights, indices, n, m);
 }
 
@@ -207,6 +203,8 @@ SimpleMHRet wmh_from_file(std::string idpath, std::string cpath, size_t sksz, in
         PERF2(float);
     } else if(usef32 == -1) {
         PERF2(uint16_t);
+    } else if(usef32 == -2) {
+        PERF2(uint32_t);
     } else {
         PERF2(double);
     }
@@ -218,8 +216,8 @@ SimpleMHRet wmh_from_file(std::string idpath, std::string cpath, size_t sksz, in
 int wsketchusage() {
     std::fprintf(stderr, "Sketch raw IDs, with optional weights added\n"
                          "Usage: dashing2 wsketch [input.bin] <Optional: input.weights.bin> <Optional: indptr.bin for CSR data>\n"
-                         "If only one path is provided, it treated as indices, and sketched via SetSketch; IE, everything is sketched with equal weight.\n"
-                         "If two paths are provided, the second is treated as a weight vector, and the multiset is sketched via ProbMinHash or BagMinHash.\n"
+                         "If only one path is provided, it is treated as indices, each with weight 1. The sketch type is chosen as described under Sketching options.\n"
+                         "If two paths are provided, the second is treated as a weight vector.\n"
                          "If three paths are provided, the second is treated as a weight vector, and the last is used as indptr; this yields a stacked set of sketches corresponding to the input matrix.\n"
                          "-S: set sketch size\n"
                          "Identifier size: 64-bit by default.\n"
@@ -366,7 +364,11 @@ int wsketch_main(int argc, char **argv) {
     std::ofstream ofs(outpref + ".sampled.tw.txt");
     std::string msg = std::string("Total weight: ") + std::to_string(total_weight) + ";" + argv[optind];
     if(optind + 1 < argc) msg += std::string(";") + argv[optind + 1];
-    msg += ';' + (f32 == 1 ? 'f' : f32 == 0 ?'d': 'H') + ';' + (u32 ? 'W': 'L');
+    // Weight type (f: float32, d: float64, H: 16-bit, U: 32-bit integers) and id width (W: 32-bit, L: 64-bit)
+    msg += ';';
+    msg += f32 == 1 ? 'f' : f32 == 0 ? 'd' : f32 == -1 ? 'H' : 'U';
+    msg += ';';
+    msg += u32 ? 'W' : 'L';
     msg += '\n';
     ofs <<  msg;
     std::cerr << msg;
