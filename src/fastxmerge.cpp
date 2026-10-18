@@ -108,6 +108,10 @@ std::string makedest(Dashing2Options &opts, const std::string &path, bool iskmer
     // -2 sketches are built from folded 128-bit k-mers and differ from 64-bit ones
     if(opts.use128())
         ret += ".u128";
+    // Rolling-hashed and folded values differ from those 2.1.20 wrote under
+    // the same name, so they are named apart and old caches are not reused.
+    if(opts.hash_scheme_tagged())
+        ret += HASH_SCHEME_SUFFIX;
     if(opts.w_ > opts.k_) {
         ret = ret + std::string(".w") + std::to_string(opts.w_);
     }

@@ -203,6 +203,7 @@ int contain_main(int argc, char **argv) {
     bns::InputType rht = static_cast<bns::InputType>(*((uint32_t *)dbptr) & 0xFF);
     const bool canon = *(uint32_t *)dbptr & 0x100;
     const bool use128 = *(uint32_t *)dbptr & 0x200;
+    const bool hash_scheme_tagged = *(uint32_t *)dbptr & HASH_SCHEME_HEADER_BIT;
 
     const uint32_t sketchsize = ((const uint32_t *)dbptr)[1];
     const uint32_t k = ((const uint32_t *)dbptr)[2];
@@ -210,6 +211,14 @@ int contain_main(int argc, char **argv) {
     const uint64_t seed = ((const uint64_t *)dbptr)[2];
     seed_mask(seed);
     if(sketchsize == 0 || k == 0) THROW_EXCEPTION(std::runtime_error("Database corrupted: the header holds a zero sketch size or k. Regenerate?"));
+    // Databases from dashing2 2.1.20 and earlier lack the scheme bit and hold
+    // differently hashed k-mers above the exact limit and with -2, so none of
+    // their k-mers would match the ones computed here.
+    if(!hash_scheme_tagged && (use128 || k > bns::rh2n(rht, 8))) {
+        std::fprintf(stderr, "Error: %s was written by dashing2 2.1.20 or earlier, which hashed k-mers differently %s. Regenerate it with this version (dashing2 sketch --save-kmers -o).\n",
+                     databasefile.data(), use128 ? "with -2/--long-kmers": ("for k above " + std::to_string(bns::rh2n(rht, 8))).data());
+        return 1;
+    }
     if((db.size() - headerlen) % (uint64_t(sketchsize) * sizeof(uint64_t))) THROW_EXCEPTION(std::runtime_error("Database corrupted (not a multiple of uint64_t size). Regenerate?"));
     std::vector<std::string> names;
     {
