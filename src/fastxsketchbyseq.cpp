@@ -508,6 +508,7 @@ void resize_fill(Dashing2DistOptions &opts, FastxSketchingResult &ret, size_t ne
                 sketchers.for_each([&](auto x) {
                     x = maskfn(x);
                     if(opts.fs_ && opts.fs_->in_set(x)) return;
+                    if(!opts.downsample_pass(x)) return;
                     ks.push_back(fold64(x));
                 }, seqp, seql);
                 std::sort(ks.begin(), ks.end());

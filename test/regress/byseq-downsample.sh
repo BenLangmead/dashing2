@@ -46,6 +46,10 @@ byseq=$(d2 cmp -k 21 --full --downsample 0.5 --parse-by-seq r.fa | vals)
 byfile=$(d2 cmp -k 21 --full --downsample 0.5 r1.fa r2.fa r3.fa | vals)
 if [ "$byseq" = "$byfile" ]; then echo "PASS by-seq similarities equal file mode: $byseq"
 else echo "FAIL by-seq similarities equal file mode: got $byseq expected $byfile"; fail=1; fi
+setseq=$(d2 cmp -k 21 --set --union-size --downsample 0.5 --parse-by-seq r.fa | vals)
+setfile=$(d2 cmp -k 21 --set --union-size --downsample 0.5 r1.fa r2.fa r3.fa | vals)
+if [ -n "$setseq" ] && [ "$setseq" = "$setfile" ]; then echo "PASS by-seq --set union sizes equal file mode: $setseq"
+else echo "FAIL by-seq --set union sizes equal file mode: got $setseq expected $setfile"; fail=1; fi
 u13=$(d2 cmp -k 21 --full --union-size --downsample 0.5 --parse-by-seq r.fa | awk '$1 == "r1" {print $4}')
 check "by-seq union r1,r3 (+-10%)" "$u13" "$half_union" "$(python3 -c "print($half_union * 0.1)")"
 # -G writes one 8-byte minimizer per entry after a header and per-record counts.
