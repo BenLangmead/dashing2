@@ -681,9 +681,28 @@ def fam_byseq(rng, wd, R, res, preset):
         alph.name, mname, feature, k, S, " ".join(extra), len(recs), [len(r) for r in recs], names)
     res.tags = {"family": "byseq", "mode": mname, "feature": feature, "ext": ext.split(".")[-1]}
     compressed_unsupported = ext.endswith(("bz2", "xz", "zst"))
-    # Exact modes are rejected cleanly.
-    p, _ = R.run(["cmp", "--parse-by-seq", rng.choice(["--set", "-J"]), "-k", str(k), path])
-    res.check(p.returncode != 0 and not crashed(p), "byseq-exact-rejected", "exit %d" % p.returncode)
+    # --countdict is rejected cleanly; --set compares exact per-record k-mer sets, which must equal
+    # file-mode --set on the same records.
+    if rng.random() < 0.5:
+        p, _ = R.run(["cmp", "--parse-by-seq", "-J", "-k", str(k), path])
+        res.check(p.returncode != 0 and not crashed(p), "byseq-exact-rejected", "exit %d" % p.returncode)
+    else:
+        smeas = rng.choice(list(MEAS_FLAGS))
+        sargs = ["--set", "--square", "-k", str(k)] + extra + MEAS_FLAGS[smeas]
+        try:
+            A = cmp_matrix(R, ["--parse-by-seq"] + sargs + [path])
+            B = cmp_matrix(R, sargs + files, rows=files)
+            n = len(recs)
+            diffs = [(i, j, A.get(i, j), B.get(i, j)) for i in range(n) for j in range(n)
+                     if not close(A.get(i, j), B.get(i, j), rel=2e-6, abs_=1e-6)]
+            if diffs:
+                i, j, a, b = diffs[0]
+                res.check(False, "byseq-set-%s" % smeas, "%d of %d cells differ, e.g. [%s,%s] by-seq %s, files %s" % (
+                    len(diffs), n * n, names[i], names[j], a, b))
+            else:
+                res.check(True, "byseq-set-%s" % smeas)
+        except D2Error as e:
+            res.check(False, "byseq-set-%s" % smeas, str(e))
     measures = rng.sample(list(MEAS_FLAGS), 3)
     seq_ok = True
     for meas in measures:
