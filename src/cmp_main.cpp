@@ -405,7 +405,7 @@ int cmp_main(int argc, char **argv) {
             std::fprintf(stderr, "Warning: --presketched sketches do not record k; --mash-distance uses k = %d. Pass the -k used for sketching if it differs.\n", distopts.k_);
         load_results(distopts, result, paths);
     } else {
-        if(unsupported_by_seq(distopts, true)) return 1;
+        if(unsupported_by_seq(distopts, true, outfile)) return 1;
         sketch_core(result, distopts, paths, outfile);
         result.nqueries(nq);
     }
@@ -422,13 +422,18 @@ int cmp_main(int argc, char **argv) {
 }
 
 
-// Exact k-mer sets and count dictionaries are only built per file, and per-sequence
-// minimizer sequences are written but cannot be compared, so these combinations
-// with --parse-by-seq are rejected up front. Returns true (after printing why) if unsupported.
-bool unsupported_by_seq(const Dashing2Options &opts, bool comparing) {
+// Count dictionaries are only built per file, per-sequence minimizer sequences are written but
+// cannot be compared, and the per-sequence exact k-mer sets of --set are kept in memory for
+// comparison only, so a stacked -o file would hold SetSketch registers rather than the sets.
+// These combinations with --parse-by-seq are rejected up front. Returns true (after printing why) if unsupported.
+bool unsupported_by_seq(const Dashing2Options &opts, bool comparing, const std::string &outfile) {
     if(!opts.parse_by_seq_) return false;
-    if(opts.kmer_result_ == FULL_MMER_SET || opts.kmer_result_ == FULL_MMER_COUNTDICT) {
-        std::fprintf(stderr, "Error: --parse-by-seq cannot be combined with --set or --countdict. Use a sketch type (the default, --full, -B or --prob), or split the records into separate files.\n");
+    if(opts.kmer_result_ == FULL_MMER_COUNTDICT) {
+        std::fprintf(stderr, "Error: --parse-by-seq cannot be combined with --countdict. Use a sketch type (the default, --full, -B or --prob) or --set, or split the records into separate files.\n");
+        return true;
+    }
+    if(opts.kmer_result_ == FULL_MMER_SET && outfile.size()) {
+        std::fprintf(stderr, "Error: --parse-by-seq with --set compares exact per-sequence k-mer sets but cannot write them with -o/--outfile. Drop -o, or split the records into separate files.\n");
         return true;
     }
     if(opts.kmer_result_ == FULL_MMER_SEQUENCE && comparing) {
