@@ -307,9 +307,21 @@ int cmp_main(int argc, char **argv) {
         .seedseed(seedseed)
         .fasta_dedup(fasta_dedup);
     opts.by_chrom_ = by_chrom;
+    // --countmin-size approximates the weights of BagMinHash and ProbMinHash sketches;
+    // --set, --countdict and --seq keep exact k-mers and counts, so it is ignored there.
+    if(opts.cssize_ && opts.kmer_result_ >= FULL_MMER_SET) {
+        std::fprintf(stderr, "Note: --countmin-size applies only to weighted sketches (--multiset, --prob); ignoring it for exact k-mer modes.\n");
+        opts.cssize_ = 0;
+    }
     opts.compressed_a_ = compressed_a;
     opts.compressed_b_ = compressed_b;
     opts.set_sketch_compressed();
+    if(opts.sketch_compressed_set && opts.sspace_ == SPACE_SET && opts.kmer_result_ == ONE_PERM) {
+        // --setsketch-ab and the --fastcmp-bytes/-shorts/-words presets build compressed
+        // SetSketches, which exist only as full SetSketches.
+        std::fprintf(stderr, "Note: --setsketch-ab and --fastcmp-bytes/-shorts/-words use the full SetSketch; enabling --full.\n");
+        opts.kmer_result_ = FULL_SETSKETCH;
+    }
     if(hpcompress) {
         if(!opts.homopolymer_compress_minimizers_) THROW_EXCEPTION(std::runtime_error("Failed to hpcompress minimizers"));
     }
