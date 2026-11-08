@@ -65,13 +65,21 @@ struct ContainEncoders {
     }
 };
 
-std::vector<flat_hash_map<uint64_t, uint64_t>> get_results(const ContainEncoders &encs, std::vector<std::string> input_files, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer) {
+std::vector<flat_hash_map<uint64_t, uint64_t>> get_results(const ContainEncoders &encs, std::vector<std::string> input_files, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer, const bool windowed) {
     std::vector<flat_hash_map<uint64_t, uint64_t>> res(input_files.size());
     //KSeqHolder kseqs(nthreads);
     OMP_PFOR_DYN
     for(size_t i = 0; i < input_files.size(); ++i) {
         auto &myres = res[i];
+        // With windows, the encoder reports the minimizer of every window, so a minimizer
+        // repeated by consecutive windows is counted as one occurrence.
+        uint64_t lastkmer = 0;
+        bool havelast = false;
         auto func = [&](const uint64_t kmer) {
+            if(windowed) {
+                if(havelast && kmer == lastkmer) return;
+                lastkmer = kmer; havelast = true;
+            }
             if(kmer < minkmer || kmer > maxkmer) return;
             auto kmeridit = kmer2ids.find(kmer);
             if(kmeridit == kmer2ids.end()) return;
@@ -99,7 +107,7 @@ void par_reduce(T *x, size_t n) {
     }
 }
 
-flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, std::string input_file, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer, const int nthreads) {
+flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, std::string input_file, const flat_hash_map<uint64_t, std::vector<uint64_t>> &kmer2ids, const uint64_t maxkmer, const uint64_t minkmer, const int nthreads, const bool windowed) {
     std::vector<flat_hash_map<uint64_t, uint64_t>> res(nthreads);
     std::vector<std::string> sf;
     for_each_substr([&sf](const auto &x) {sf.push_back(x);}, input_file);
@@ -108,7 +116,13 @@ flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, st
     parser.start();
     for(size_t i = 0; i < size_t(nthreads); ++i) {
         threads.emplace_back([&,i]() {
-            auto func = [minkmer,maxkmer,&kmer2ids,&myres=res[i]](const uint64_t kmer) __attribute__((always_inline)) {
+            uint64_t lastkmer = 0;
+            bool havelast = false;
+            auto func = [&,&myres=res[i]](const uint64_t kmer) __attribute__((always_inline)) {
+                if(windowed) {
+                    if(havelast && kmer == lastkmer) return;
+                    lastkmer = kmer; havelast = true;
+                }
                 if(kmer < minkmer || kmer > maxkmer) return;
                 auto kmeridit = kmer2ids.find(kmer);
                 if(kmeridit == kmer2ids.end()) return;
@@ -117,7 +131,10 @@ flat_hash_map<uint64_t, uint64_t> get_results_sf(const ContainEncoders &encs, st
                 else ++it->second;
             };
             for(auto rg = parser.getReadGroup();parser.refill(rg);) {
-                for(const auto &seq: rg) encs.for_each(func, seq.seq.data(), seq.seq.size());
+                for(const auto &seq: rg) {
+                    havelast = false;
+                    encs.for_each(func, seq.seq.data(), seq.seq.size());
+                }
             }
         });
     }
@@ -207,12 +224,18 @@ int contain_main(int argc, char **argv) {
     if(nitems != ((db.size() - headerlen) / sketchsize / sizeof(uint64_t))) THROW_EXCEPTION(std::runtime_error("Database corrupted; wrong number of names."));
     const ContainEncoders encs{k, w, canon, rht, bns::RollingHasher<uint64_t>(k, canon, rht, w), bns::RollingHasher<u128_t>(k, canon, rht, w), use128};
     flat_hash_map<uint64_t, std::vector<uint64_t>> kmer2ids;
+    // One-permutation sketches of small inputs have empty buckets, which a fresh sketch
+    // reports with this id. They hold no k-mer, so they are left out of the coverage.
+    const uint64_t emptyid = OPSetSketch(sketchsize).ids().front();
+    std::vector<uint32_t> nsampled(nitems);
     for(size_t i = 0; i < nitems; ++i) {
         uint64_t *ptr = ((uint64_t *)dbptr + 3 + sketchsize * i);
         assert((const char *)ptr < &db.data()[db.size()]);
         // A hash-table mutation cannot be vectorized; no simd claim here.
         for(size_t j = 0; j < sketchsize; ++j) {
+            if(ptr[j] == emptyid) continue;
             kmer2ids[ptr[j]].push_back(i);
+            ++nsampled[i];
         }
     }
     // We can quickly filter out k-mers by using min/max k-mers
@@ -228,16 +251,15 @@ int contain_main(int argc, char **argv) {
     std::vector<flat_hash_map<uint64_t, uint64_t>> res;
     if(nthreads > 1 && nq < size_t(nthreads)) {
         for(const auto &sf: streamfiles) {
-            res.emplace_back(get_results_sf(encs, sf, kmer2ids, maxkmer, minkmer, nthreads));
+            res.emplace_back(get_results_sf(encs, sf, kmer2ids, maxkmer, minkmer, nthreads, w > k));
         }
     } else {
-        res = get_results(encs, streamfiles, kmer2ids, maxkmer, minkmer);
+        res = get_results(encs, streamfiles, kmer2ids, maxkmer, minkmer, w > k);
     }
     const size_t tablesize = nitems * streamfiles.size();
     const size_t table2size = tablesize * 2;
     std::vector<float, sketch::Allocator<float>> coverage_mat(table2size);
     float *const coverage_stats = coverage_mat.data() + tablesize;
-    const double ssiv = 1. / sketchsize;
     OMP_PFOR_DYN
     for(size_t i = 0; i < res.size(); ++i) {
         uint32_t *matches = static_cast<uint32_t *>(std::calloc(nitems * 2, sizeof(uint32_t)));
@@ -255,8 +277,8 @@ int contain_main(int argc, char **argv) {
 #endif
         for(size_t j = 0; j < nitems; ++j) {
             if(matches[j]) {
-                cmatptr[j] = ssiv * matches[j];
-                cstatsptr[j] = matchsums[j] / matches[j];
+                cmatptr[j] = double(matches[j]) / nsampled[j];
+                cstatsptr[j] = float(matchsums[j]) / matches[j];
             }
         }
         std::free(matches);
@@ -268,8 +290,8 @@ int contain_main(int argc, char **argv) {
         checked_fwrite(coverage_mat.data(), sizeof(float), coverage_mat.size(), ofp);
     } else {
         // TODO: Parallize results formatting
-        fmt::print(ofp, "#Dashing2 contain - a list of coverage %%s for the set of references, + mean coverage levels.\n"
-                        "#Each matrix entry consists of <coverage%%:mean depth of coverage>\n"
+        fmt::print(ofp, "#Dashing2 contain - a list of coverage percentages for the set of references, + mean coverage levels.\n"
+                        "#Each matrix entry consists of <coverage%:mean depth of coverage>\n"
                         "##References:");
         for(size_t i = 0; i < nitems; ++i)
             fmt::print(ofp, "\t{}", names[i]);
@@ -288,7 +310,7 @@ int contain_main(int argc, char **argv) {
                 float stat_arr[sizeof(matd) / sizeof(float)];
                 std::memcpy(mat_arr, &matd, sizeof(matd));
                 std::memcpy(stat_arr, &statd, sizeof(statd));
-                fmt::print("\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
+                fmt::print(ofp, "\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
                            mat_arr[0], mat_arr[1], mat_arr[2], mat_arr[3], mat_arr[4], mat_arr[5], mat_arr[6], mat_arr[7], mat_arr[8], mat_arr[9], mat_arr[10], mat_arr[11], mat_arr[12], mat_arr[13], mat_arr[14], mat_arr[15], stat_arr[0], stat_arr[1], stat_arr[2], stat_arr[3], stat_arr[4], stat_arr[5], stat_arr[6], stat_arr[7], stat_arr[8], stat_arr[9], stat_arr[10], stat_arr[11], stat_arr[12], stat_arr[13], stat_arr[14], stat_arr[15]
                 );
             }
@@ -302,7 +324,7 @@ int contain_main(int argc, char **argv) {
                 float stat_arr[sizeof(matd) / sizeof(float)];
                 std::memcpy(mat_arr, &matd, sizeof(matd));
                 std::memcpy(stat_arr, &statd, sizeof(statd));
-                fmt::print("\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
+                fmt::print(ofp, "\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}\t{:0.6g}%:{}",
                         mat_arr[0], mat_arr[1], mat_arr[2], mat_arr[3], mat_arr[4], mat_arr[5], mat_arr[6], mat_arr[7], stat_arr[0], stat_arr[1], stat_arr[2], stat_arr[3], stat_arr[4], stat_arr[5], stat_arr[6], stat_arr[7]
                 );
             }
