@@ -7,21 +7,57 @@
 namespace dashing2 {
 extern size_t MEMSIGTHRESH;
 
+// .xz, .bz2 and .zst inputs are read through a decompression pipe, which starts even when the
+// file is missing, so every sequence file is checked before sketching.
+static void require_readable_inputs(const std::vector<std::string> &paths) {
+    for(const auto &line: paths) {
+        for_each_substr([](const std::string &path) {
+            if(std::FILE *fp = std::fopen(path.data(), "rb")) {
+                std::fclose(fp);
+                return;
+            }
+            std::fprintf(stderr, "Could not open input file %s: %s\n", path.data(), std::strerror(errno));
+            std::exit(EXIT_FAILURE);
+        }, line);
+    }
+}
+
 INLINE size_t nbytes_from_line(const std::string &line) {
     size_t ret = 0;
     for_each_substr([&ret](const std::string &s) {ret += bns::filesize(s.data());}, line);
     return ret;
 }
 
+// Sketch and k-mer files written by dashing2 are binary; parsing one as FASTA/FASTQ yields meaningless k-mers.
+static void reject_sketch_files(const std::vector<std::string> &paths) {
+    static constexpr const char *sketch_exts[] = {".ss", ".opss", ".bmh", ".pmh", ".kmerset64", ".kmerset128", ".mmerseq64", ".mmerseq128"};
+    for(const auto &line: paths) {
+        for_each_substr([](const std::string &path) {
+            if(std::none_of(std::begin(sketch_exts), std::end(sketch_exts), [&](const char *ext) {return endswith(path, ext);}))
+                return;
+            std::FILE *fp = std::fopen(path.data(), "rb");
+            if(!fp) return;
+            const int c = std::fgetc(fp);
+            std::fclose(fp);
+            if(c != '>' && c != '@') {
+                std::fprintf(stderr, "%s looks like a dashing2 sketch file rather than FASTA/FASTQ; use cmp --presketched to compare sketch files\n", path.data());
+                std::exit(EXIT_FAILURE);
+            }
+        }, line);
+    }
+}
+
 SketchingResult &sketch_core(SketchingResult &result, Dashing2DistOptions &opts, const std::vector<std::string> &paths, std::string &outfile) {
     if(opts.kmer_result() == FULL_MMER_SEQUENCE && outfile.empty()) {
         THROW_EXCEPTION(std::runtime_error("outfile must be specified for --seq mode."));
     }
+    if(opts.dtype_ == DataType::FASTX) require_readable_inputs(paths);
     result.signatures_.memthreshold(MEMSIGTHRESH);
     result.kmers_.memthreshold(MEMSIGTHRESH);
     const size_t npaths = paths.size();
     std::string tmpfile;
     if(opts.dtype_ == DataType::FASTX) {
+        reject_sketch_files(paths);
         if(opts.parse_by_seq_) {
             if(paths.size() != 1) {
                 result.nperfile_.resize(paths.size());

@@ -18,7 +18,7 @@ int printmin_main(int argc, char **argv) {
         case 'h':
             usage:
             std::fprintf(stderr, "Usage: -f: emit fasta. Default - emits tabular result.\n-o: Write to file instead of stdout.\n");
-            return 1;
+            return 0;
     }}
     buffer_to_blksize(ofp);
     if(optind == argc) THROW_EXCEPTION(std::invalid_argument("Required: one positional argument for printmin_main"));

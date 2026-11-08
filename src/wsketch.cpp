@@ -241,12 +241,15 @@ int wsketchusage() {
                          "-p: Set number of threads (processes) [1]\n"
             );
         std::fprintf(stderr, "If two are provided, then 1-D weighted minhashing is performed on the compressed vector. If three are passed, then this result is treated as a CSR-format matrix and then emits a matrix of sketches.\n");
-        std::fprintf(stderr, "To unweighted sparse matrices (omitting the data field), use CSR-style sketching but replace the weights file with '-'");
-        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64 g1.fastq.k31.kmerset64 g1.fastq.k31.kmercounts.f64'.\n");
-        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64 g1.fastq.k31.kmerset64 # sketches k-mers only'.\n");
-        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64.mat g1.fastq.k31.data64 fq.fastq.k31.indices64 # sketches weighted k-mer sets'.\n");
-        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64.mat g1.fastq.k31.data64 fq.fastq.k31.indices64 fq.fastq.k31.indptr64 # sketches weighted sets from CSR-format and emits these sketches stacked'.\n");
-        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64.mat - fq.fastq.k31.indices64 fq.fastq.k31.indptr64 # sketches sets from packed sets and emits these sketches stacked.");
+        std::fprintf(stderr, "To sketch unweighted sparse matrices (omitting the data field), use CSR-style sketching but replace the weights file with '-'.\n");
+        std::fprintf(stderr, "Identifiers always come first, then weights (or '-'), then indptr.\n");
+        std::fprintf(stderr, "K-mer files written by 'dashing2 sketch --set' or '--countdict' (.kmerset64) start with an 8-byte cardinality, which must be removed before\n"
+                             "they are used as identifiers, e.g. 'tail -c +9 g1.fastq.k31.kmerset64 > g1.k31.ids64'. The matching .kmercounts.f64 file has no header.\n");
+        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64 g1.k31.ids64 g1.fastq.k31.kmercounts.f64 # sketches weighted k-mer sets'.\n");
+        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64 g1.k31.ids64 # sketches k-mers only'.\n");
+        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64.mat fq.fastq.k31.indices64 g1.fastq.k31.data64 # sketches weighted k-mer sets'.\n");
+        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64.mat fq.fastq.k31.indices64 g1.fastq.k31.data64 fq.fastq.k31.indptr64 # sketches weighted sets from CSR-format and emits these sketches stacked'.\n");
+        std::fprintf(stderr, "Example: 'dashing2 wsketch -S 64  -o g1.k31.k64.mat fq.fastq.k31.indices64 - fq.fastq.k31.indptr64 # sketches sets from packed sets and emits these sketches stacked'.\n");
         std::fprintf(stderr, "The use of '-' causes the weights for all points to be uniform.\n");
     return 1;
 }
@@ -278,7 +281,8 @@ int wsketch_main(int argc, char **argv) {
         case 'U': f32 = -2; break;
         case 'o': outpref = optarg; break;
         case 'P': ip32 = true; break;
-        case '?': case 'h': return wsketchusage();
+        case 'h': wsketchusage(); return 0;
+        case '?': return wsketchusage();
     }}
     OMP_ONLY(omp_set_num_threads(std::max(nthreads, 1));)
     auto diff = argc - optind;

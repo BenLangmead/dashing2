@@ -30,7 +30,7 @@ std::string Dashing2Options::to_string() const {
         pos += std::sprintf(&ret[pos], ";spacing:%s", spacing_.data());
     }
     if(outprefix_.size()) pos += std::sprintf(&ret[pos], ";outprefix:%s", outprefix_.data());
-    if(cssize_) pos += std::sprintf(&ret[pos], ";counting=countsketch%zu\n", cssize_);
+    if(cssize_) pos += std::sprintf(&ret[pos], ";counting=countsketch%zu", cssize_);
     if(bed_parse_normalize_intervals_) pos += std::sprintf(&ret[pos], ";normalize_intervals");
     if(by_chrom_) pos += std::sprintf(&ret[pos], ";sketchbychrom");
     if(homopolymer_compress_minimizers_) pos += std::sprintf(&ret[pos], ";hp-compress-minimizers");
