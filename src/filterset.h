@@ -37,6 +37,9 @@ class FilterSet {
     aligned::vector<T> data_;
     double bfexp_;
     int k_ = 0;
+    // 128-bit items are stored as (low, high) word pairs, the little-endian layout of u128_t,
+    // so the sorted table can be searched as an array of u128_t.
+    bool is128_ = false;
     //  Table size is
 #ifndef M_LN2
     static constexpr double M_LN2 = 0.6931471805599453;
@@ -93,13 +96,15 @@ public:
         data_ = std::move(o.data_);
         bfexp_ = o.bfexp_;
         k_ = o.k_;
+        is128_ = o.is128_;
         return *this;
     }
     FilterSet(double bfexp=-1., int k=-1): bfexp_(bfexp), k_(k) {
     }
     void add(u128_t item) {
-        data_.push_back(item >> 64);
-        data_.push_back(item);
+        is128_ = true;
+        data_.push_back(uint64_t(item));
+        data_.push_back(uint64_t(item >> 64));
     }
     void add(uint64_t item) {
         data_.push_back(item);
